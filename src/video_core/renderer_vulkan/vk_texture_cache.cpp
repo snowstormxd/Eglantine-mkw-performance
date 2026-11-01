@@ -1083,7 +1083,7 @@ void BlitScale(Scheduler& scheduler, VkImage src_image, VkImage dst_image, const
     });
 }
 
-// Uncompressed ASTC needs more video memory than a Switch 2 title leaves under a 12 GiB budget
+// Uncompressed ASTC needs more video memory than a Switch 2 title leaves under a 20 GiB budget
 // (Mario Kart World filled a 16 GB card's 13.5 GB budget; a 12 GB card has ~11.2 GB): there the
 // textures went unbacked (garbage) and the game crashed. Use BC3 for this session.
 void UseBc3ForSwitch2OnSmallCards(const Device& device) {
@@ -1100,7 +1100,7 @@ void UseBc3ForSwitch2OnSmallCards(const Device& device) {
     }
     LOG_WARNING(Render_Vulkan,
                 "Switch 2 program with a {} MiB video memory budget: ASTC textures are "
-                "re-compressed to BC3 for this session (uncompressed ASTC needs a 20 GiB budget). "
+                "re-compressed to BC3 for this session (automatic threshold: 20 GiB). "
                 "Set EDEN_NX2_KEEP_ASTC=1 to keep them uncompressed",
                 memory >> 20);
     Settings::SetAstcRecompressionOverride(Settings::AstcRecompression::Bc3);
