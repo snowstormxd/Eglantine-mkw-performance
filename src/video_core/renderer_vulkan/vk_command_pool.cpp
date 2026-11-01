@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <cstddef>
+#include <cstdlib>
+
+#include "video_core/nx2.h"
 
 #include "video_core/renderer_vulkan/vk_command_pool.h"
 #include "video_core/vulkan_common/vulkan_device.h"
@@ -45,11 +48,19 @@ VkCommandBuffer CommandPool::Commit() {
     // largest recording: title 1 grew ~200 of them, ~6 GB of mostly empty write-combined NVIDIA
     // pushbuffer memory charged to the commit limit. Release it into the pool on reuse (the GPU is
     // done with this buffer) and trim the pool once per round of its buffers.
-    const auto& dld = device.GetDispatchLoader();
-    dld.vkResetCommandBuffer(cmdbuf, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT);
-    if (sub_index == 0 && dld.vkTrimCommandPool) {
-        dld.vkTrimCommandPool(*device.GetLogical(), *pool.handle, 0);
+#ifdef _WIN32
+    static const bool release_resources = [] {
+        const char* value = std::getenv("EDEN_NX2_COMMAND_POOL_RELEASE");
+        return value == nullptr || value[0] != '0';
+    }();
+    if (release_resources && Tegra::g_nx2_ampere.load(std::memory_order_relaxed)) {
+        const auto& dld = device.GetDispatchLoader();
+        vk::Check(dld.vkResetCommandBuffer(cmdbuf, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT));
+        if (sub_index == 0 && dld.vkTrimCommandPool) {
+            dld.vkTrimCommandPool(*device.GetLogical(), *pool.handle, 0);
+        }
     }
+#endif
     return cmdbuf;
 }
 

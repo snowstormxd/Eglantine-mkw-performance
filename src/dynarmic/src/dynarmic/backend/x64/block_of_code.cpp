@@ -23,6 +23,7 @@
 
 #include <array>
 #include <cstring>
+#include <new>
 
 #include "common/assert.h"
 #include "dynarmic/mcl/bit.hpp"
@@ -229,12 +230,16 @@ void BlockOfCode::EnsureMemoryCommitted([[maybe_unused]] size_t codesize) {
 #ifdef _WIN32
     if (committed_size < size_ + codesize) {
         // From the write position too: with a reserved cache, a commit that falls short faults.
-        committed_size = std::min<size_t>(maxSize_, std::max(committed_size, size_) + codesize);
+        const size_t next_committed_size = std::min<size_t>(maxSize_, std::max(committed_size, size_) + codesize);
 #    ifdef DYNARMIC_ENABLE_NO_EXECUTE_SUPPORT
-        VirtualAlloc(top_, committed_size, MEM_COMMIT, PAGE_READWRITE);
+        void* const committed = VirtualAlloc(top_, next_committed_size, MEM_COMMIT, PAGE_READWRITE);
 #    else
-        VirtualAlloc(top_, committed_size, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+        void* const committed = VirtualAlloc(top_, next_committed_size, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
 #    endif
+        if (!committed) {
+            throw std::bad_alloc{};
+        }
+        committed_size = next_committed_size;
     }
 #endif
 }

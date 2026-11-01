@@ -28,16 +28,20 @@ inline constexpr u64 Nx2WrittenPageBits = 12;
 inline std::array<std::atomic<u64>, (u64{1} << (36 - Nx2WrittenPageBits)) / 64> g_nx2_gpu_written_pages{};
 
 inline void Nx2MarkGpuWritten(u64 device_address, u64 size) {
-    if (size == 0) {
+    constexpr u64 AddressLimit = u64{1} << 36;
+    if (size == 0 || device_address >= AddressLimit) {
         return;
     }
-    const u64 last = std::min<u64>((device_address + size - 1) >> Nx2WrittenPageBits,
+    const u64 last = std::min<u64>((device_address + (std::min)(size, AddressLimit - device_address) - 1) >> Nx2WrittenPageBits,
                                    g_nx2_gpu_written_pages.size() * 64 - 1);
-    for (u64 page = device_address >> Nx2WrittenPageBits; page <= last; ++page) {
-        auto& word = g_nx2_gpu_written_pages[page / 64];
-        const u64 bit = u64{1} << (page % 64);
-        if ((word.load(std::memory_order_relaxed) & bit) == 0) {
-            word.fetch_or(bit, std::memory_order_relaxed);
+    const u64 first = device_address >> Nx2WrittenPageBits;
+    for (u64 index = first / 64; first <= last && index <= last / 64; ++index) {
+        const u64 low = index == first / 64 ? first % 64 : 0;
+        const u64 high = index == last / 64 ? last % 64 : 63;
+        const u64 bits = (~u64{0} >> (63 - high)) & (~u64{0} << low);
+        auto& word = g_nx2_gpu_written_pages[index];
+        if ((word.load(std::memory_order_relaxed) & bits) != bits) {
+            word.fetch_or(bits, std::memory_order_relaxed);
         }
     }
 }
@@ -55,6 +59,26 @@ inline void Nx2ClearGpuWrittenPages() {
         return false;
     }
     return (g_nx2_gpu_written_pages[page / 64].load(std::memory_order_relaxed) >> (page % 64)) & 1;
+}
+
+template <typename Translate>
+[[nodiscard]] bool Nx2HasGpuWrittenPage(GPUVAddr address, size_t size, Translate&& translate) {
+    if (size == 0) {
+        return false;
+    }
+    const GPUVAddr last = address + size - 1;
+    if (last < address) {
+        return true;
+    }
+    constexpr GPUVAddr mask = (GPUVAddr{1} << Nx2WrittenPageBits) - 1;
+    for (GPUVAddr page = address & ~mask;; page += mask + 1) {
+        if (const auto device = translate(page); device && Nx2IsGpuWritten(*device)) {
+            return true;
+        }
+        if (page == (last & ~mask)) {
+            return false;
+        }
+    }
 }
 
 // NVN2 queues release their progress values into the second page of a two-page GPU-accessible
