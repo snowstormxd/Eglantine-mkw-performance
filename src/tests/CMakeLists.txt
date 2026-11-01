@@ -16,6 +16,7 @@ add_executable(tests
     common/scratch_buffer.cpp
     common/undefined_fix.cpp
     common/unique_function.cpp
+    common/game_presets.cpp
     core/core_timing.cpp
     core/internal_network/network.cpp
     video_core/memory_tracker.cpp
