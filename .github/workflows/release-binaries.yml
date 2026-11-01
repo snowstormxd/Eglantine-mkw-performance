@@ -86,7 +86,11 @@ jobs:
             https://github.com/Eden-CI/PGO/releases/latest/download/eden.profdata
           test -s eden.profdata
           clang --version
-          llvm-profdata show eden.profdata | head -12
+          mkdir -p build/checks
+          printf 'int main(void) { return 0; }\n' > build/checks/pgo-reader.c
+          clang -fprofile-use="$(cygpath -m "$PWD/eden.profdata")" \
+            -Wno-profile-instr-unprofiled -Wno-profile-instr-out-of-date \
+            -c build/checks/pgo-reader.c -o build/checks/pgo-reader.o
           sha256sum eden.profdata > pgo-profile.sha256
           pacman -Q > windows-dependencies.txt
           export CCACHE_BASEDIR="$(cygpath -m "$GITHUB_WORKSPACE")"
@@ -97,7 +101,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p build/checks
-          for name in uniform_stream_reuse gpu_written_ranges usage_tracker; do
+          for name in uniform_stream_reuse gpu_written_ranges usage_tracker ampere_lowering; do
             clang++ -std=c++20 -O2 -Wall -Wextra -Werror -Isrc \
               "tools/integration/${name}_test.cpp" -o "build/checks/${name}.exe"
             "build/checks/${name}.exe"
