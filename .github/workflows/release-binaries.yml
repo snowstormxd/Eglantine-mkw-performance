@@ -115,7 +115,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p build/checks
-          for name in uniform_stream_reuse gpu_written_ranges usage_tracker ampere_lowering game_discovery; do
+          for name in uniform_stream_reuse gpu_written_ranges usage_tracker ampere_lowering game_discovery command_reuse native_memory_policy; do
             clang++ -std=c++20 -O2 -Wall -Wextra -Werror -Isrc \
               "tools/integration/${name}_test.cpp" -o "build/checks/${name}.exe"
             "build/checks/${name}.exe"
@@ -134,7 +134,7 @@ jobs:
             -Wno-profile-instr-unprofiled -Wno-profile-instr-out-of-date"
           cmake -S . -B build/release -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_TESTING=OFF -DYUZU_TESTS=OFF \
+            -DBUILD_TESTING=ON -DYUZU_TESTS=ON \
             -DYUZU_CMD=OFF -DYUZU_ROOM=OFF -DYUZU_ROOM_STANDALONE=OFF \
             -DENABLE_QT_TRANSLATION=OFF -DENABLE_OPENGL=OFF \
             -DYUZU_USE_BUNDLED_QT=OFF -DYUZU_USE_BUNDLED_SDL3=ON \
@@ -147,7 +147,10 @@ jobs:
             "-DCMAKE_C_FLAGS=$profile" "-DCMAKE_CXX_FLAGS=$profile"
 
       - name: Build eglantine.exe
-        run: cmake --build build/release --target yuzu --parallel "${NUMBER_OF_PROCESSORS:-4}"
+        run: cmake --build build/release --target yuzu tests --parallel "${NUMBER_OF_PROCESSORS:-4}"
+
+      - name: Check native regression suite
+        run: build/release/bin/tests.exe --reporter compact --rng-seed 12345
 
       - name: Save compiler statistics
         if: always()
@@ -175,6 +178,7 @@ jobs:
           set -euo pipefail
           export PATH="/ucrt64/bin:$PATH"
           cd build/release/bin
+          rm -f tests.exe
           test -f eglantine.exe
           windeployqt6 --release --no-translations --no-compiler-runtime --no-opengl-sw \
             --no-system-dxc-compiler --no-system-d3d-compiler eglantine.exe
@@ -202,6 +206,8 @@ jobs:
           cp ../../../docs/mkw/WINDOWS-IMPROVEMENTS.md ./WINDOWS-IMPROVEMENTS.md
           cp ../../../tools/windows/record-memory.ps1 ./record-memory.ps1
           cp ../../../tools/windows/collect-debug.ps1 ./collect-debug.ps1
+          cp ../../../tools/windows/MKW-Performance.cmd ../../../tools/windows/MKW-Diagnostics.cmd ./
+          cp ../../../docs/mkw/PERFORMANCE-INVESTIGATION.md ./PERFORMANCE-INVESTIGATION.md
 
       - name: Check native executable and packaged startup
         shell: pwsh
