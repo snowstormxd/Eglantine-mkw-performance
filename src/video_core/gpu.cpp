@@ -229,9 +229,15 @@ struct GPU::Impl {
                      reads.load(std::memory_order_relaxed));
         }
         const u64 fence = RequestSyncOperation([this, raster_area]() {
-            // Apply collected guest writes before downloading GPU data over guest memory.
+            auto* const rasterizer = renderer->ReadRasterizer();
+            const DAddr start = raster_area.start_address;
+            const u64 size = raster_area.end_address - raster_area.start_address;
+            // A collected guest write cancels an overlapping image's pending download.
+            rasterizer->FlushRegion(start, size, VideoCommon::CacheType::TextureCache);
             InvalidateGPUCache();
-            renderer->ReadRasterizer()->FlushRegion(raster_area.start_address, raster_area.end_address - raster_area.start_address);
+            rasterizer->FlushRegion(start, size,
+                                    VideoCommon::CacheType::BufferCache |
+                                        VideoCommon::CacheType::QueryCache);
         });
         gpu_thread.TickGPU(is_async);
         WaitForSyncOperation(fence);
