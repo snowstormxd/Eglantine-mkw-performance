@@ -359,6 +359,9 @@ PipelineCache::PipelineCache(Tegra::MaxwellDeviceMemoryManager& device_memory_,
               "VkPipelineBuilder", {}, Common::ThreadPlacement::Background),
       serialization_thread(1, "VkPipelineSerialization", {},
                            Common::ThreadPlacement::Background) {
+    LOG_INFO(Render_Vulkan, "Shader pipeline workers={} host_threads={} async_shaders={}",
+             device.HasBrokenParallelShaderCompiling() ? 1ULL : GetTotalPipelineWorkers(),
+             std::thread::hardware_concurrency(), use_asynchronous_shaders);
     const auto& float_control{device.FloatControlProperties()};
     const VkDriverId driver_id{device.GetDriverID()};
     const VkShaderStageFlags subgroup_stages{device.GetSubgroupSupportedStages()};
