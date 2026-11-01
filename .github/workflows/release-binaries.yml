@@ -41,6 +41,8 @@ jobs:
       CCACHE_DIR: ${{ github.workspace }}/.ccache
       CCACHE_MAXSIZE: 3G
       CCACHE_COMPILERCHECK: content
+      PGO_PROFILE_URL: https://github.com/Eden-CI/PGO/releases/download/v020525/eden.profdata
+      PGO_PROFILE_SHA256: 777dd9aefb9427ed08a642b02998f32c5ac120e5d32611d8f21cf1f4e68cee57
     steps:
       - uses: actions/checkout@v4
 
@@ -54,7 +56,7 @@ jobs:
             git make autoconf libtool automake-wrapper patch jq pactoys ninja
           pacboy: >-
             toolchain:p clang:p lld:p cmake:p python-pip:p
-            qt6-base:p qt6-charts:p qt6-tools:p qt6-translations:p qt6-svg:p
+            qt6-base:p qt6-charts:p qt6-tools:p qt6-svg:p
             openssl:p boost:p fmt:p lz4:p nlohmann-json:p zlib:p zstd:p libiconv:p
             vulkan-memory-allocator:p vulkan-devel:p glslang:p enet:p opus:p
             libusb:p unordered_dense:p jbigkit:p xz:p libdeflate:p bzip2:p
@@ -65,49 +67,67 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .cache/cpm
-          key: cpm-Windows-pgo-${{ hashFiles('cpmfile.json', 'CMakeLists.txt', 'src/**/CMakeLists.txt') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: cpm-Windows-pgo-v2-${{ hashFiles('cpmfile.json', 'CMakeModules/**', '.patch/**') }}
           restore-keys: |
             cpm-Windows-pgo-${{ hashFiles('cpmfile.json', 'CMakeLists.txt', 'src/**/CMakeLists.txt') }}-
             cpm-Windows-
 
-      - name: Restore compiler objects
-        id: objects
-        uses: actions/cache/restore@v4
+      - name: Restore pinned PGO profile
+        uses: actions/cache@v4
         with:
-          path: .ccache
-          key: objects-windows-x86_64-pgo-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: |
-            objects-windows-x86_64-pgo-
+          path: eden.profdata
+          key: pgo-profile-${{ env.PGO_PROFILE_SHA256 }}
 
-      - name: Download upstream PGO profile
+      - name: Verify pinned PGO profile and toolchain
+        id: toolchain
         run: |
           set -euo pipefail
-          curl --retry 4 -fsSL -o eden.profdata \
-            https://github.com/Eden-CI/PGO/releases/latest/download/eden.profdata
-          test -s eden.profdata
+          if [ ! -s eden.profdata ]; then
+            curl --retry 4 -fsSL -o eden.profdata "$PGO_PROFILE_URL"
+          fi
+          printf '%s  %s\n' "$PGO_PROFILE_SHA256" eden.profdata | sha256sum --check -
           clang --version
           mkdir -p build/checks
           printf 'int main(void) { return 0; }\n' > build/checks/pgo-reader.c
           clang -fprofile-use="$(cygpath -m "$PWD/eden.profdata")" \
             -Wno-profile-instr-unprofiled -Wno-profile-instr-out-of-date \
             -c build/checks/pgo-reader.c -o build/checks/pgo-reader.o
-          sha256sum eden.profdata > pgo-profile.sha256
+          printf '%s  eden.profdata\n' "$PGO_PROFILE_SHA256" > pgo-profile.sha256
+          printf '%s\n' "$PGO_PROFILE_URL" > pgo-profile-source.txt
           pacman -Q > windows-dependencies.txt
+          fingerprint=$(cat windows-dependencies.txt pgo-profile.sha256 | sha256sum | cut -c1-16)
+          printf 'fingerprint=%s\n' "$fingerprint" >> "$GITHUB_OUTPUT"
           export CCACHE_BASEDIR="$(cygpath -m "$GITHUB_WORKSPACE")"
           ccache --set-config "base_dir=$CCACHE_BASEDIR"
           ccache --zero-stats
+
+      - name: Restore compiler objects
+        id: objects
+        uses: actions/cache/restore@v4
+        with:
+          path: .ccache
+          key: objects-windows-x86_64-pgo-v2-${{ steps.toolchain.outputs.fingerprint }}-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            objects-windows-x86_64-pgo-v2-${{ steps.toolchain.outputs.fingerprint }}-
+            objects-windows-x86_64-pgo-
 
       - name: Check cache and command-range regressions
         run: |
           set -euo pipefail
           mkdir -p build/checks
-          for name in uniform_stream_reuse gpu_written_ranges usage_tracker ampere_lowering; do
+          for name in uniform_stream_reuse gpu_written_ranges usage_tracker ampere_lowering game_discovery; do
             clang++ -std=c++20 -O2 -Wall -Wextra -Werror -Isrc \
               "tools/integration/${name}_test.cpp" -o "build/checks/${name}.exe"
             "build/checks/${name}.exe"
           done
+          clang++ -std=c++20 -O2 -Wall -Wextra -Werror -Isrc -Isrc/dynarmic/src \
+            tools/integration/jit_ranges_test.cpp \
+            src/dynarmic/src/dynarmic/backend/block_range_information.cpp \
+            -o build/checks/jit_ranges.exe
+          build/checks/jit_ranges.exe
 
       - name: Configure upstream native Windows PGO target
+        id: configure
         run: |
           set -euo pipefail
           profile="-fprofile-use=$(cygpath -m "$PWD/eden.profdata") -Wno-backend-plugin \
@@ -116,7 +136,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_TESTING=OFF -DYUZU_TESTS=OFF \
             -DYUZU_CMD=OFF -DYUZU_ROOM=OFF -DYUZU_ROOM_STANDALONE=OFF \
-            -DENABLE_QT_TRANSLATION=OFF \
+            -DENABLE_QT_TRANSLATION=OFF -DENABLE_OPENGL=OFF \
             -DYUZU_USE_BUNDLED_QT=OFF -DYUZU_USE_BUNDLED_SDL3=ON \
             -DYUZU_USE_BUNDLED_FFMPEG=ON \
             -DVulkanHeaders_FORCE_BUNDLED=ON -DVulkanUtilityLibraries_FORCE_BUNDLED=ON \
@@ -127,15 +147,17 @@ jobs:
             "-DCMAKE_C_FLAGS=$profile" "-DCMAKE_CXX_FLAGS=$profile"
 
       - name: Build eglantine.exe
-        run: cmake --build build/release --target yuzu --parallel 4
+        run: cmake --build build/release --target yuzu --parallel "${NUMBER_OF_PROCESSORS:-4}"
 
       - name: Save compiler statistics
         if: always()
-        run: ccache --show-stats
+        run: |
+          ccache --show-stats | tee build/ccache-stats.txt
+          cat build/ccache-stats.txt >> "$GITHUB_STEP_SUMMARY"
 
       # Explicit save steps retain useful work from a failed compile too.
       - name: Save dependency downloads
-        if: ${{ always() && steps.cpm.outcome == 'success' }}
+        if: ${{ always() && steps.cpm.outcome == 'success' && steps.configure.outcome == 'success' && steps.cpm.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
         with:
           path: .cache/cpm
@@ -174,10 +196,12 @@ jobs:
           find . -name '*.dll' | while read -r dll; do deps "$dll"; done
           cp ../../../LICENSE.txt ./LICENSE.txt
           cp -R ../../../LICENSES ./LICENSES
-          cp ../../../pgo-profile.sha256 ../../../windows-dependencies.txt ./
+          cp ../../../pgo-profile.sha256 ../../../pgo-profile-source.txt ../../../windows-dependencies.txt ./
           git -C ../../.. rev-parse HEAD > source-commit.txt
           cp ../../../docs/mkw/TESTING.md ./TESTING.md
+          cp ../../../docs/mkw/WINDOWS-IMPROVEMENTS.md ./WINDOWS-IMPROVEMENTS.md
           cp ../../../tools/windows/record-memory.ps1 ./record-memory.ps1
+          cp ../../../tools/windows/collect-debug.ps1 ./collect-debug.ps1
 
       - name: Check native executable and packaged startup
         shell: pwsh
@@ -190,6 +214,7 @@ jobs:
           path: build/release/bin/
           if-no-files-found: error
           retention-days: 30
+          compression-level: 1
 
       - name: Publish Windows prerelease
         if: github.event_name == 'push' || inputs.publish_release
