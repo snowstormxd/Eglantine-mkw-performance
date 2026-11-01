@@ -21,6 +21,7 @@ add_executable(tests
     video_core/memory_tracker.cpp
     video_core/ampere_returns.cpp
     video_core/usage_tracker.cpp
+    video_core/sparse_tiles.cpp
     input_common/calibration_configuration_job.cpp
 )
 
