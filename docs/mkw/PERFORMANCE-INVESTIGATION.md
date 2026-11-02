@@ -227,3 +227,51 @@ batched shader invalidation measured 7.370 versus 1.934 ms. These are the same
 synthetic workload shapes described above, not game frame times. They do not
 establish a gameplay FPS improvement. Rendering, synchronization, readback and
 cache allocation policies retain their existing behavior.
+
+## Local timer test after the 2 November race capture
+
+The local i5-13400F / RTX 4070 capture identified HostTiming as the busiest
+thread in every valid resource interval, averaging about 98% of one logical
+processor. During the sustained slower section, periodic FPS samples averaged
+44, CPU usage averaged 36% across 16 logical processors, and the busiest GPU
+engine averaged 19%. These are sampled counters, not whole-lap frame percentiles.
+
+| Candidate | Decision for this test build |
+| --- | --- |
+| HostTiming occupying a logical CPU while waiting | Use an interruptible Windows high-resolution timer for longer waits, retaining the existing precise wait near the deadline. |
+| New shader translation on the submission thread | Defer moving it to workers until resource lifetime and shared shader-pool access can be validated. Driver compilation already uses workers. |
+| Repeated costly-texture eviction and ASTC decoding | Preserve the commit reserve. Investigate reuse and peak allocations before increasing retention. |
+| GPU readbacks and split-thread drains | Preserve synchronization; the current capture does not justify removing these operations. |
+
+A fully blocking timer was tested first and rejected: it saved CPU time but
+frequently added several hundred microseconds to short deadlines. The hybrid
+implementation keeps waits shorter than 800 microseconds on the original path.
+For longer waits it arms the timer 600 microseconds early and finishes against
+the original deadline with the existing precise wait. A separate kernel event
+interrupts the blocking portion when a new event is scheduled. The original
+user-space event owns the signal, including signals arriving before the wait.
+Unsupported high-resolution timers automatically use the original implementation.
+
+An isolated benchmark compared the actual old and new wait implementations with
+repeated deadline checks, three runs per mode, on this PC:
+
+| Requested interval | Original timer CPU | Hybrid timer CPU |
+| --- | ---: | ---: |
+| 250 microseconds | approximately one logical CPU | approximately one logical CPU |
+| 1 millisecond | approximately one logical CPU | approximately 46–55% of one logical CPU |
+| 4 milliseconds | approximately one logical CPU | approximately 4–12% of one logical CPU |
+
+CPU accounting is quantized; the short benchmark occasionally reports above
+100%. Typical hybrid deadline overshoot was below a microsecond, but scheduling
+outliers remained, including one 5.1 ms outlier. These results measure timer
+waiting only. They do not establish an FPS gain, less game stutter, or locked
+60 FPS. The next same-course race comparison must determine the gameplay result.
+
+The native suite passes 97 cases, including queued/coalesced signals, timed
+interruption and rearming, indefinite wakeup, and scheduling an earlier core
+event while a later timer is pending. The startup log reports the selected timer
+path. Set `EDEN_WINDOWS_TIMER_SPIN=1` before starting the emulator for a comparison
+using the original wait; remove it for the hybrid default. No graphics settings,
+rendering barriers, or memory limits are changed by this pass.
+
+Assisted by Codex.

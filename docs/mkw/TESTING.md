@@ -112,3 +112,19 @@ upstream issue #180 reports lost collision with that workaround.
 No 60-minute gameplay result or measured FPS improvement is claimed until tested
 on the target machine. The integration does not implement full Ampere mesh/task
 support. Upstream hardware emulation gaps may still cause missing graphics.
+
+## Windows hybrid-timer test build
+
+The 2 November timer build retains the previously tested flicker and fiber-memory
+fixes. Longer HostTiming waits now release the CPU until shortly before their
+deadline; short waits retain the precise path. The log should say
+`Host timer: Windows high-resolution hybrid wait`.
+
+Compare the same course and route with the previous final test build, using the
+same copied shader cache and recommended settings. Check low FPS, hitches,
+controller responsiveness, audio, item icons, and stopping/closing. A reduced
+HostTiming CPU percentage alone is not a successful FPS comparison.
+
+For a controlled fallback on this same executable, start a fresh process with
+`EDEN_WINDOWS_TIMER_SPIN=1`. Remove the variable afterward. Unsupported timers
+use the original wait automatically. No launcher script is needed for the default.
