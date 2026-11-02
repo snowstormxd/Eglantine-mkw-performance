@@ -1,0 +1,69 @@
+name: Linux build check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-build-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    container: archlinux:base-devel
+    timeout-minutes: 90
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache-linux
+      CCACHE_MAXSIZE: 2G
+      CCACHE_COMPILERCHECK: content
+    steps:
+      - name: Install Linux build dependencies
+        run: |
+          pacman -Syu --noconfirm --needed \
+            git cmake ninja clang lld ccache python pkgconf \
+            qt6-base qt6-charts qt6-tools qt6-svg \
+            ffmpeg sdl3 boost openssl fmt lz4 nlohmann-json zlib zstd \
+            enet opus libusb alsa-lib libpulse \
+            vulkan-headers vulkan-memory-allocator vulkan-utility-libraries glslang
+
+      - uses: actions/checkout@v4
+
+      - name: Restore dependency downloads and compiler objects
+        uses: actions/cache@v4
+        with:
+          path: |
+            .cache/cpm
+            .ccache-linux
+          key: linux-check-v1-${{ hashFiles('cpmfile.json', 'CMakeModules/**', '.patch/**') }}-${{ github.sha }}
+          restore-keys: |
+            linux-check-v1-${{ hashFiles('cpmfile.json', 'CMakeModules/**', '.patch/**') }}-
+
+      - name: Configure native Linux GUI and tests
+        run: |
+          cmake -S . -B build/linux-check -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DENABLE_LTO=OFF -DUSE_CCACHE=ON \
+            -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld \
+            -DBUILD_TESTING=ON -DYUZU_TESTS=ON \
+            -DYUZU_CMD=OFF -DYUZU_ROOM=OFF -DYUZU_ROOM_STANDALONE=OFF \
+            -DENABLE_QT_TRANSLATION=OFF -DENABLE_OPENGL=OFF \
+            -DYUZU_USE_BUNDLED_QT=OFF -DYUZU_USE_BUNDLED_SDL3=OFF \
+            -DYUZU_USE_BUNDLED_FFMPEG=OFF \
+            -DVulkanHeaders_FORCE_BUNDLED=ON -DVulkanUtilityLibraries_FORCE_BUNDLED=ON \
+            -DENABLE_UPDATE_CHECKER=OFF -DUSE_DISCORD_PRESENCE=OFF
+
+      - name: Verify Windows-only sources are excluded
+        run: |
+          if grep -E 'high_resolution_event\.cpp|windows_timer\.cpp|windows/timer_resolution\.cpp' build/linux-check/compile_commands.json; then
+            echo 'A Windows-only source was included in the Linux build.' >&2
+            exit 1
+          fi
+
+      - name: Build Linux GUI and tests
+        run: cmake --build build/linux-check --target yuzu tests --parallel 2
+
+      - name: Run native regression tests
+        run: build/linux-check/bin/tests --reporter compact --rng-seed 12345
