@@ -2134,6 +2134,7 @@ void BufferCache<P>::DownloadBuffersMemory(std::span<const BufferId> buffer_ids)
 
 template <class P>
 void BufferCache<P>::FinishDownloadBatch() {
+    VideoCommon::Nx2Profile::Scope scope{VideoCommon::Nx2Profile::Zone::BufferReadback};
     boost::container::small_vector<BatchedDownload, 4> downloads;
     downloads.swap(batched_downloads);
     batched_download_bytes = 0;
@@ -2151,6 +2152,7 @@ void BufferCache<P>::FinishDownloadBatch() {
 
 template <class P>
 void BufferCache<P>::DownloadBufferMemory(Buffer& buffer, DAddr device_addr, u64 size) {
+    VideoCommon::Nx2Profile::Scope scope{VideoCommon::Nx2Profile::Zone::BufferReadback};
     // Only the part of the range inside this buffer is this buffer's to download: the caller
     // passes the whole range to every buffer it touches, and the tracker clears what it visits.
     const DAddr buffer_begin = buffer.CpuAddr();

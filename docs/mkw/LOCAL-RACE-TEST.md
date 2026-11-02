@@ -1,7 +1,19 @@
 # Local MKW race test, 2 November 2026
 
 Run eglantine.exe and choose Yes for the recommended graphics settings.
-This is a test build; locked 60 FPS and the item-icon fix are not yet confirmed.
+This is a test build; locked 60 FPS is not yet confirmed.
+
+The user confirmed that the first test removes item-icon flickering. With detailed
+profiling off, the user reports roughly 55 FPS. Thirteen low-shader samples from
+200-330 seconds average 55.4 FPS (43.0-61.0); these remain periodic samples rather
+than frame percentiles. The log still shows repeated texture eviction and uploads
+while the system commit limit restricts the cache below the available VRAM budget.
+
+The second test removes an unused 2 MiB rewind stack from every fiber allocation.
+It keeps the active stack size and fiber-switching logic unchanged. Optional
+profiling now separates deferred commands, worker waits, GPU waits and readbacks.
+Windows thread names also work in the UCRT64 build. Profiling stays off for the
+normal FPS comparison. The second test's gameplay improvement is still unmeasured.
 
 Changes:
 
@@ -22,7 +34,7 @@ while waiting; they do not guarantee that a game with frame-dependent simulation
 will run at full speed below its intended render rate.
 
 Native Windows PGO build and 92 regression cases pass, including present timing,
-slow-frame recovery, and fiber switching. Actual gameplay still needs comparison.
+slow-frame recovery, and fiber switching. The second test still needs comparison.
 Use the same track, game version, camera, and 1x graphics settings for both runs.
 Check the item icon and race timer as well as FPS. A profiling run includes extra
 instrumentation; follow it with a normal run for the FPS comparison.

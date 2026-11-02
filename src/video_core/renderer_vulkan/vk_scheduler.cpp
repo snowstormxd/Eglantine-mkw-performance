@@ -16,6 +16,7 @@
 #include "common/settings.h"
 #include "common/thread.h"
 #include "video_core/gpu_logging/gpu_logging.h"
+#include "video_core/nx2_profile.h"
 #include "video_core/renderer_vulkan/vk_command_pool.h"
 #include "video_core/renderer_vulkan/vk_graphics_pipeline.h"
 #include "video_core/renderer_vulkan/vk_master_semaphore.h"
@@ -65,6 +66,7 @@ u64 Scheduler::Flush(VkSemaphore signal_semaphore, VkSemaphore wait_semaphore) {
 }
 
 void Scheduler::Finish(VkSemaphore signal_semaphore, VkSemaphore wait_semaphore) {
+    VideoCommon::Nx2Profile::Scope scope{VideoCommon::Nx2Profile::Zone::GpuWait};
     if (VideoCommon::GpuSplit::check_owner) [[unlikely]] {
         VideoCommon::GpuSplit::CheckOwner("Scheduler::Finish");
     }
@@ -76,6 +78,7 @@ void Scheduler::Finish(VkSemaphore signal_semaphore, VkSemaphore wait_semaphore)
 }
 
 void Scheduler::WaitWorker() {
+    VideoCommon::Nx2Profile::Scope scope{VideoCommon::Nx2Profile::Zone::WorkerWait};
     DispatchWork();
 
     // Ensure the queue is drained.
