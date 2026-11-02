@@ -13,7 +13,15 @@ The second test removes an unused 2 MiB rewind stack from every fiber allocation
 It keeps the active stack size and fiber-switching logic unchanged. Optional
 profiling now separates deferred commands, worker waits, GPU waits and readbacks.
 Windows thread names also work in the UCRT64 build. Profiling stays off for the
-normal FPS comparison. The second test's gameplay improvement is still unmeasured.
+normal FPS comparison. The user confirmed fewer hitches and roughly 5 FPS better
+lows in the second test.
+
+The final test removes a second copy of each native macro's parameter buffer and
+makes per-register debug history opt-in for release builds. DMA appends use the
+same owned parameter vector; native JIT regression checks cover vector growth and
+1000 successive invocations. EDEN_NX2_3D_HISTORY enables the full write-history
+ring when debugging. Rendering order, barriers, and guest timing remain intact.
+The final CPU change still needs a race comparison.
 
 Changes:
 
@@ -33,8 +41,8 @@ wall time in multicore mode. The new presentation changes free the guest core
 while waiting; they do not guarantee that a game with frame-dependent simulation
 will run at full speed below its intended render rate.
 
-Native Windows PGO build and 92 regression cases pass, including present timing,
-slow-frame recovery, and fiber switching. The second test still needs comparison.
+Native Windows PGO build and 93 regression cases pass, including present timing,
+slow-frame recovery, fiber switching and native macro FIFO growth.
 Use the same track, game version, camera, and 1x graphics settings for both runs.
 Check the item icon and race timer as well as FPS. A profiling run includes extra
 instrumentation; follow it with a normal run for the FPS comparison.
