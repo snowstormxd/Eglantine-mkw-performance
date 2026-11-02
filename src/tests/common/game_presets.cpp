@@ -48,7 +48,8 @@ TEST_CASE("MKW preset overrides saved settings for the session", "[game_presets]
     auto settings = std::make_unique<Settings::Values>();
     SetConflictingPreferences(*settings, false);
     SetConflictingPreferences(*settings, true);
-    REQUIRE(Settings::ApplyMarioKartWorldPreset(*settings, Settings::MarioKartWorldProgramId));
+    REQUIRE(
+        Settings::ApplyMarioKartWorldPreset(*settings, Settings::MarioKartWorldProgramId, true));
     CheckPreset(*settings);
     CheckPreferences(*settings, true);
     for (const auto& restore : settings->linkage.restore_functions) {
@@ -57,17 +58,30 @@ TEST_CASE("MKW preset overrides saved settings for the session", "[game_presets]
     CheckPreferences(*settings);
     CHECK(settings->renderer_backend.UsingGlobal());
     CHECK(settings->resolution_setup.UsingGlobal());
-    REQUIRE(Settings::ApplyMarioKartWorldPreset(*settings, Settings::MarioKartWorldProgramId));
+    REQUIRE(
+        Settings::ApplyMarioKartWorldPreset(*settings, Settings::MarioKartWorldProgramId, true));
     CheckPreset(*settings);
 }
 
 TEST_CASE("MKW preset does not change unrelated games", "[game_presets]") {
     auto settings = std::make_unique<Settings::Values>();
     SetConflictingPreferences(*settings, false);
-    CHECK_FALSE(Settings::ApplyMarioKartWorldPreset(*settings, 0));
-    CHECK_FALSE(
-        Settings::ApplyMarioKartWorldPreset(*settings, Settings::MarioKartWorldProgramId + 1));
+    CHECK_FALSE(Settings::ApplyMarioKartWorldPreset(*settings, 0, true));
+    CHECK_FALSE(Settings::ApplyMarioKartWorldPreset(*settings,
+                                                    Settings::MarioKartWorldProgramId + 1, true));
     CheckPreferences(*settings);
     CHECK(settings->renderer_backend.UsingGlobal());
     CHECK(settings->resolution_setup.UsingGlobal());
+}
+
+TEST_CASE("Declining the MKW preset preserves global and per-game preferences", "[game_presets]") {
+    auto settings = std::make_unique<Settings::Values>();
+    for (bool per_game : {false, true}) {
+        SetConflictingPreferences(*settings, per_game);
+        CHECK_FALSE(Settings::ApplyMarioKartWorldPreset(*settings,
+                                                        Settings::MarioKartWorldProgramId, false));
+        CheckPreferences(*settings);
+        CHECK(settings->renderer_backend.UsingGlobal() == !per_game);
+        CHECK(settings->resolution_setup.UsingGlobal() == !per_game);
+    }
 }

@@ -8,8 +8,8 @@ namespace Settings {
 
 inline constexpr u64 MarioKartWorldProgramId = 0x0400C3F00006E000ULL;
 
-inline bool ApplyMarioKartWorldPreset(Values& settings, u64 program_id) {
-    if (program_id != MarioKartWorldProgramId) {
+inline bool ApplyMarioKartWorldPreset(Values& settings, u64 program_id, bool accepted) {
+    if (!accepted || program_id != MarioKartWorldProgramId) {
         return false;
     }
     // Apply after reading per-game configuration, without overwriting saved global preferences.

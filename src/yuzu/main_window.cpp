@@ -454,8 +454,24 @@ MainWindow::MainWindow(bool has_broken_vulkan)
     // Setup content providers.
     QtCommon::SetupContentProviders();
 
-    // Gen keys if necessary
     OnCheckFirmwareDecryption();
+    auto* recommendations = new QMessageBox(
+        QMessageBox::Question, tr("Recommended Mario Kart World settings"),
+        tr("Do you want to use the recommended settings for Mario Kart World?\n\n"
+           "Vulkan, 1x resolution, GPU Fast, asynchronous shaders, ASTC BC3, conservative "
+           "VRAM, reactive flushing off, and VSync FIFO Relaxed.\n\n"
+           "Yes overrides saved graphics settings on subsequent Mario Kart World launches "
+           "during this app session. No, closing, or ignoring this window keeps your own settings."),
+        QMessageBox::Yes | QMessageBox::No, this);
+    recommendations->setAttribute(Qt::WA_DeleteOnClose);
+    recommendations->setDefaultButton(QMessageBox::No);
+    recommendations->setEscapeButton(QMessageBox::No);
+    recommendations->setWindowModality(Qt::NonModal);
+    connect(recommendations, &QMessageBox::finished, this, [this](int result) {
+        use_recommended_mkw_settings = result == QMessageBox::Yes;
+        LOG_INFO(Config, "MKW recommended settings accepted: {}", use_recommended_mkw_settings);
+    });
+    recommendations->show();
 
 #ifdef __unix__
     OnCheckGraphicsBackend();
@@ -1955,9 +1971,10 @@ void MainWindow::BootGame(const QString& filename, Service::AM::FrontendAppletPa
         QtCommon::system->ApplySettings();
     }
 
-    if (Settings::ApplyMarioKartWorldPreset(Settings::values, title_id)) {
+    if (Settings::ApplyMarioKartWorldPreset(Settings::values, title_id,
+                                            use_recommended_mkw_settings)) {
         Settings::UpdateGPUAccuracy();
-        LOG_INFO(Config, "Automatic MKW preset: Vulkan, 1x, Fast, async shaders, BC3, "
+        LOG_INFO(Config, "User-selected MKW preset: Vulkan, 1x, Fast, async shaders, BC3, "
                          "conservative VRAM, reactive flushing off, FIFO Relaxed");
     }
     Settings::LogSettings();
@@ -4489,16 +4506,6 @@ void MainWindow::OnMouseActivity() {
 }
 
 void MainWindow::OnCheckFirmwareDecryption() {
-    if (!ContentManager::AreKeysPresent()) {
-        const auto res = QtCommon::Frontend::Warning(
-            tr("Derivation Components Missing"),
-            tr("Decryption keys are missing. Install them now?"),
-            QtCommon::Frontend::StandardButton::Yes | QtCommon::Frontend::StandardButton::No);
-
-        if (res == QtCommon::Frontend::StandardButton::Yes)
-            OnInstallDecryptionKeys();
-    }
-
     SetFirmwareVersion();
     UpdateMenuState();
 }
