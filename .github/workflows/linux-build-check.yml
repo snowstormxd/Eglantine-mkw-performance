@@ -27,7 +27,7 @@ jobs:
             qt6-base qt6-charts qt6-tools qt6-svg \
             ffmpeg sdl3 boost openssl fmt lz4 nlohmann-json zlib zstd \
             enet opus libusb alsa-lib libpulse \
-            vulkan-headers vulkan-memory-allocator vulkan-utility-libraries glslang
+            vulkan-headers vulkan-utility-libraries glslang
 
       - uses: actions/checkout@v4
 
