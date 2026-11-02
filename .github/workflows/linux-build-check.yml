@@ -2,6 +2,11 @@ name: Linux build check
 
 on:
   workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Branch or commit to check
+        type: string
+        required: false
 
 permissions:
   contents: read
@@ -30,6 +35,9 @@ jobs:
             vulkan-headers vulkan-utility-libraries glslang
 
       - uses: actions/checkout@v4
+        id: source
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
 
       - name: Restore dependency downloads and compiler objects
         uses: actions/cache@v4
@@ -37,7 +45,7 @@ jobs:
           path: |
             .cache/cpm
             .ccache-linux
-          key: linux-check-v1-${{ hashFiles('cpmfile.json', 'CMakeModules/**', '.patch/**') }}-${{ github.sha }}
+          key: linux-check-v1-${{ hashFiles('cpmfile.json', 'CMakeModules/**', '.patch/**') }}-${{ steps.source.outputs.commit }}
           restore-keys: |
             linux-check-v1-${{ hashFiles('cpmfile.json', 'CMakeModules/**', '.patch/**') }}-
 
