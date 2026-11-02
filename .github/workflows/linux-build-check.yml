@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: linux-build-check-${{ github.ref }}
+  group: linux-build-check-${{ inputs.source_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -40,7 +40,8 @@ jobs:
           ref: ${{ inputs.source_ref || github.ref }}
 
       - name: Restore dependency downloads and compiler objects
-        uses: actions/cache@v4
+        id: cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             .cache/cpm
@@ -71,7 +72,16 @@ jobs:
           fi
 
       - name: Build Linux GUI and tests
-        run: cmake --build build/linux-check --target yuzu tests --parallel 2
+        run: cmake --build build/linux-check --target yuzu tests --parallel 4
 
       - name: Run native regression tests
         run: build/linux-check/bin/tests --reporter compact --rng-seed 12345
+
+      - name: Save dependency downloads and compiler objects
+        if: always() && steps.cache.outputs.cache-primary-key != '' && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            .cache/cpm
+            .ccache-linux
+          key: ${{ steps.cache.outputs.cache-primary-key }}
