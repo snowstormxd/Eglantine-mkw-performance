@@ -4,17 +4,22 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <future>
+#include <QApplication>
+#include <QClipboard>
 #include <QColor>
 #include <QImage>
 #include <QList>
 #include <QLocale>
+#include <QMessageBox>
 #include <QMetaType>
+#include <QPushButton>
 #include <QTime>
 #include <QtConcurrentRun>
 #include "common/logging.h"
 #include "network/announce_multiplayer_session.h"
-#include "ui_client_room.h"
+#include "network/switch2_rooms.h"
 #include "qt_common/game_list/game_list_p.h"
+#include "ui_client_room.h"
 #include "yuzu/multiplayer/client_room.h"
 #include "yuzu/multiplayer/message.h"
 #include "yuzu/multiplayer/moderation_dialog.h"
@@ -24,6 +29,23 @@ ClientRoomWindow::ClientRoomWindow(QWidget* parent)
     : QDialog(parent, Qt::WindowTitleHint | Qt::WindowCloseButtonHint | Qt::WindowSystemMenuHint),
       ui(std::make_unique<Ui::ClientRoom>()) {
     ui->setupUi(this);
+    auto* copy_id = new QPushButton(tr("Copy Public Room ID"), this);
+    copy_id->setToolTip(tr("Public hosts can share this ID. For unlisted rooms, share the host's "
+                           "server address and UDP port instead."));
+    ui->verticalLayout->insertWidget(0, copy_id);
+    connect(copy_id, &QPushButton::clicked, this, [this] {
+        const auto room = Network::GetRoom().lock();
+        if (room && room->GetState() == Network::Room::State::Open &&
+            !room->GetVerifyUID().empty()) {
+            QApplication::clipboard()->setText(
+                QString::fromStdString(Network::PublicRoomCode(room->GetVerifyUID())));
+        } else {
+            QMessageBox::information(this, tr("Sharing this room"),
+                                     tr("Use Browse Rooms and right-click the public room to copy "
+                                        "its ID. For an unlisted room, ask its host for the server "
+                                        "address and UDP port."));
+        }
+    });
     ui->chat->Initialize();
 
     // setup the callbacks for network updates

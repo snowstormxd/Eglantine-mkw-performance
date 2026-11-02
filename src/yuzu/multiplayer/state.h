@@ -59,6 +59,7 @@ public:
      * When this is true, Web Services configuration should be disabled.
      */
     bool IsHostingPublicRoom() const;
+    bool IsConnecting() const;
 
     void UpdateCredentials();
 

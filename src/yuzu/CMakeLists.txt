@@ -180,6 +180,7 @@ add_executable(yuzu
     multiplayer/direct_connect.h
     multiplayer/direct_connect.ui
     multiplayer/host_room.cpp
+    multiplayer/game_list.h
     multiplayer/host_room.h
     multiplayer/host_room.ui
     multiplayer/lobby.cpp

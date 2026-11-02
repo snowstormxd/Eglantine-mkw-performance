@@ -55,6 +55,7 @@ static void to_json(nlohmann::json& json, const Room& room) {
 }
 
 static void from_json(const nlohmann::json& json, Room& room) {
+    room.id = json.value("id", std::string{});
     room.verify_uid = json.at("externalGuid").get<std::string>();
     room.ip = json.at("address").get<std::string>();
     room.information.name = json.at("name").get<std::string>();
@@ -124,12 +125,28 @@ void RoomJson::ClearPlayers() {
     room.members.clear();
 }
 
-AnnounceMultiplayerRoom::RoomList RoomJson::GetRoomList() {
-    auto reply = client.GetJson("/lobby", true).returned_data;
-    if (reply.empty()) {
+AnnounceMultiplayerRoom::RoomList RoomJson::GetRoomList(std::string* error) {
+    if (error) {
+        error->clear();
+    }
+    const auto reply = client.GetJson("/lobby", true);
+    if (reply.result_code != WebResult::Code::Success) {
+        if (error) {
+            *error = "Could not contact the public room directory. Check your connection and Web settings.";
+        }
         return {};
     }
-    return nlohmann::json::parse(reply).at("rooms").get<AnnounceMultiplayerRoom::RoomList>();
+    try {
+        return nlohmann::json::parse(reply.returned_data)
+            .at("rooms")
+            .get<AnnounceMultiplayerRoom::RoomList>();
+    } catch (const nlohmann::json::exception&) {
+        if (error) {
+            *error = "The public room directory returned invalid room data. Try again later.";
+        }
+        LOG_WARNING(WebService, "Invalid public room directory response");
+        return {};
+    }
 }
 
 void RoomJson::Delete() {

@@ -5,9 +5,11 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QEventLoop>
 #include <QIcon>
 #include <QMessageBox>
 #include <QStandardItemModel>
+#include <QTimer>
 #include "common/announce_multiplayer_room.h"
 #include "common/logging.h"
 #include "core/core.h"
@@ -63,6 +65,17 @@ MultiplayerState::MultiplayerState(QWidget* parent, QStandardItemModel* game_lis
 MultiplayerState::~MultiplayerState() = default;
 
 void MultiplayerState::Close() {
+    if (IsConnecting() || (lobby && lobby->IsRefreshing())) {
+        QEventLoop loop;
+        QTimer poll;
+        connect(&poll, &QTimer::timeout, &loop, [this, &loop] {
+            if (!IsConnecting() && (!lobby || !lobby->IsRefreshing())) {
+                loop.quit();
+            }
+        });
+        poll.start(20);
+        loop.exec(QEventLoop::ExcludeUserInputEvents);
+    }
     if (state_callback_handle) {
         if (auto member = Network::GetRoomMember().lock()) {
             member->Unbind(state_callback_handle);
@@ -256,6 +269,11 @@ void MultiplayerState::OnCreateRoom() {
 }
 
 bool MultiplayerState::OnCloseRoom() {
+    if (IsConnecting()) {
+        QMessageBox::information(this, tr("Connecting"),
+                                 tr("Wait for the pending room connection to finish first."));
+        return false;
+    }
     if (!NetworkMessage::WarnCloseRoom())
         return false;
     if (auto room = Network::GetRoom().lock()) {
@@ -321,6 +339,11 @@ void MultiplayerState::OnDirectConnectToRoom() {
 
 bool MultiplayerState::IsHostingPublicRoom() const {
     return announce_multiplayer_session->IsRunning();
+}
+
+bool MultiplayerState::IsConnecting() const {
+    return (host_room && host_room->IsConnecting()) ||
+           (direct_connect && direct_connect->IsConnecting()) || (lobby && lobby->IsConnecting());
 }
 
 void MultiplayerState::UpdateCredentials() {

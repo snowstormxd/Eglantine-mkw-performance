@@ -7,6 +7,7 @@
 
 #include <memory>
 #include <QDialog>
+#include <QFutureWatcher>
 #include <QSortFilterProxyModel>
 #include <QStandardItemModel>
 #include <QVariant>
@@ -47,6 +48,12 @@ public:
      */
     void UpdateGameList(QStandardItemModel* list);
     void RetranslateUi();
+    bool IsConnecting() const {
+        return watcher.isRunning();
+    }
+    void WaitForConnection() {
+        watcher.waitForFinished();
+    }
 
 signals:
     void SaveConfig();
@@ -60,6 +67,7 @@ private:
     QStandardItemModel* game_list;
     ComboBoxProxyModel* proxy;
     Validation validation;
+    QFutureWatcher<QString> watcher;
     Core::System& system;
 };
 

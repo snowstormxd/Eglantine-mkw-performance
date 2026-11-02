@@ -13,6 +13,7 @@ add_library(network STATIC
     packet.h
     room.cpp
     room.h
+    switch2_rooms.h
     room_member.cpp
     room_member.h
     verify_user.cpp

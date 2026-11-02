@@ -194,7 +194,7 @@ struct Values {
     Setting<std::string> multiplayer_room_nickname{
         linkage, {}, "room_nickname", Category::Multiplayer};
     Setting<std::string> multiplayer_room_name{linkage, {}, "room_name", Category::Multiplayer};
-    Setting<u8, true> multiplayer_max_player{linkage, 8, 0, 8, "max_player", Category::Multiplayer};
+    Setting<u8, true> multiplayer_max_player{linkage, 8, 2, 24, "max_player", Category::Multiplayer};
     Setting<u16, true> multiplayer_room_port{linkage,    24872,       0,
                                              UINT16_MAX, "room_port", Category::Multiplayer};
     Setting<u8, true> multiplayer_host_type{linkage, 0, 0, 1, "host_type", Category::Multiplayer};

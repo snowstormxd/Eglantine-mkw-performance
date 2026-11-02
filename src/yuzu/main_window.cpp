@@ -1939,6 +1939,15 @@ void MainWindow::BootGame(const QString& filename, Service::AM::FrontendAppletPa
     }
     LOG_INFO(Frontend, "Eglantine starting...");
 
+    if (const auto member = Network::GetRoomMember().lock();
+        multiplayer_state->IsConnecting() ||
+        (member && member->GetState() == Network::RoomMember::State::Joining)) {
+        QMessageBox::information(
+            this, tr("Connecting to room"),
+            tr("Wait for the room connection to finish before starting a game."));
+        return;
+    }
+
     if (params.program_id == 0 ||
         params.program_id > static_cast<u64>(Service::AM::AppletProgramId::MaxProgramId)) {
         StoreRecentFile(filename); // Put the filename on top of the list

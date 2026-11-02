@@ -17,8 +17,10 @@ add_executable(tests
     common/undefined_fix.cpp
     common/unique_function.cpp
     common/game_presets.cpp
+    common/switch2_rooms.cpp
     core/core_timing.cpp
     core/internal_network/network.cpp
+    core/internal_network/rooms.cpp
     video_core/memory_tracker.cpp
     video_core/ampere_returns.cpp
     video_core/usage_tracker.cpp

@@ -21,6 +21,7 @@ class Lobby;
 
 class LobbyModel;
 class LobbyFilterProxyModel;
+class QLabel;
 
 namespace Core {
 class System;
@@ -45,6 +46,12 @@ public:
      */
     void UpdateGameList(QStandardItemModel* list);
     void RetranslateUi();
+    bool IsConnecting() const {
+        return watcher->isRunning();
+    }
+    bool IsRefreshing() const {
+        return room_list_watcher.isRunning();
+    }
 
 public slots:
     /**
@@ -103,6 +110,8 @@ private:
     std::weak_ptr<Core::AnnounceMultiplayerSession> announce_multiplayer_session;
     QFutureWatcher<void>* watcher;
     Validation validation;
+    QLabel* directory_status{};
+    std::shared_ptr<std::string> refresh_error;
     Core::System& system;
 };
 

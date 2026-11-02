@@ -138,8 +138,8 @@ void AnnounceMultiplayerSession::UpdateBackendData(std::shared_ptr<Network::Room
     }
 }
 
-AnnounceMultiplayerRoom::RoomList AnnounceMultiplayerSession::GetRoomList() {
-    return backend->GetRoomList();
+AnnounceMultiplayerRoom::RoomList AnnounceMultiplayerSession::GetRoomList(std::string* error) {
+    return backend->GetRoomList(error);
 }
 
 void AnnounceMultiplayerSession::UpdateCredentials() {

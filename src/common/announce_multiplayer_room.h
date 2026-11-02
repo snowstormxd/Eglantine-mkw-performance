@@ -103,7 +103,7 @@ public:
      * Get the room information from the announce service
      * @result A list of all rooms the announce service has
      */
-    virtual RoomList GetRoomList() = 0;
+    virtual RoomList GetRoomList(std::string* error = nullptr) = 0;
 
     /**
      * Sends a delete message to the announce service
@@ -132,7 +132,10 @@ public:
                                      "WebService is missing", ""};
     }
     void ClearPlayers() override {}
-    RoomList GetRoomList() override {
+    RoomList GetRoomList(std::string* error = nullptr) override {
+        if (error) {
+            *error = "This build does not include web services.";
+        }
         return RoomList{};
     }
 

@@ -4,8 +4,13 @@
 // SPDX-FileCopyrightText: Copyright 2017 Citra Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <QApplication>
+#include <QClipboard>
 #include <QInputDialog>
+#include <QLabel>
 #include <QList>
+#include <QMenu>
+#include <QMessageBox>
 #include <QtConcurrentRun>
 #include "common/logging.h"
 #include "common/settings.h"
@@ -13,11 +18,13 @@
 #include "core/hle/service/acc/profile_manager.h"
 #include "core/internal_network/network_interface.h"
 #include "network/network.h"
+#include "network/switch2_rooms.h"
 #include "qt_common/config/uisettings.h"
-#include "ui_lobby.h"
 #include "qt_common/game_list/game_list_p.h"
+#include "ui_lobby.h"
 #include "yuzu/main_window.h"
 #include "yuzu/multiplayer/client_room.h"
+#include "yuzu/multiplayer/game_list.h"
 #include "yuzu/multiplayer/lobby.h"
 #include "yuzu/multiplayer/lobby_p.h"
 #include "yuzu/multiplayer/message.h"
@@ -34,12 +41,27 @@ Lobby::Lobby(QWidget* parent, QStandardItemModel* list,
     ui->setupUi(this);
 
     // setup the watcher for background connections
-    watcher = new QFutureWatcher<void>;
+    watcher = new QFutureWatcher<void>(this);
+    connect(watcher, &QFutureWatcher<void>::finished, this, [this] {
+        ui->room_list->setEnabled(true);
+        if (auto member = Network::GetRoomMember().lock(); member && member->IsConnected()) {
+            close();
+        }
+    });
+    auto* help = new QLabel(tr("Switch 2 rooms from Eden's public directory. Double-click to join "
+                               "before starting your game. Right-click a room to copy its ID."),
+                            this);
+    help->setWordWrap(true);
+    ui->verticalLayout->insertWidget(0, help);
+    directory_status = new QLabel(this);
+    directory_status->setWordWrap(true);
+    ui->verticalLayout->insertWidget(1, directory_status);
+    setWindowTitle(tr("Browse Switch 2 rooms"));
 
     model = new QStandardItemModel(ui->room_list);
 
     // Create a proxy to the game list to get the list of games owned
-    game_list = new QStandardItemModel;
+    game_list = new QStandardItemModel(this);
     UpdateGameList(list);
 
     proxy = new LobbyFilterProxyModel(this, game_list);
@@ -59,6 +81,26 @@ Lobby::Lobby(QWidget* parent, QStandardItemModel* list,
     ui->room_list->setEditTriggers(QHeaderView::NoEditTriggers);
     ui->room_list->setExpandsOnDoubleClick(false);
     ui->room_list->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(ui->room_list, &QTreeView::customContextMenuRequested, this, [this](QPoint position) {
+        auto index = ui->room_list->indexAt(position);
+        if (!index.isValid()) {
+            return;
+        }
+        if (index.parent().isValid()) {
+            index = index.parent();
+        }
+        const auto host = proxy->index(index.row(), Column::HOST);
+        const auto uid = host.data(LobbyItemHost::HostVerifyUIDRole).toString();
+        if (uid.isEmpty()) {
+            return;
+        }
+        QMenu menu(this);
+        auto* copy = menu.addAction(tr("Copy Room ID"));
+        if (menu.exec(ui->room_list->viewport()->mapToGlobal(position)) == copy) {
+            QApplication::clipboard()->setText(
+                QString::fromStdString(Network::PublicRoomCode(uid.toStdString())));
+        }
+    });
 
     ui->nickname->setValidator(validation.GetNickname());
     ui->nickname->setText(
@@ -97,16 +139,14 @@ Lobby::Lobby(QWidget* parent, QStandardItemModel* list,
     ui->hide_full->setChecked(UISettings::values.multiplayer_filter_hide_full.GetValue());
 }
 
-Lobby::~Lobby() = default;
+Lobby::~Lobby() {
+    watcher->waitForFinished();
+    room_list_watcher.waitForFinished();
+}
 
 void Lobby::UpdateGameList(QStandardItemModel* list) {
     game_list->clear();
-    for (int i = 0; i < list->rowCount(); i++) {
-        auto parent = list->item(i, 0);
-        for (int j = 0; j < parent->rowCount(); j++) {
-            game_list->appendRow(parent->child(j)->clone());
-        }
-    }
+    AppendSwitch2Games(list->invisibleRootItem(), *game_list);
     if (proxy)
         proxy->UpdateGameList(game_list);
     ui->room_list->sortByColumn(Column::GAME_NAME, Qt::AscendingOrder);
@@ -114,6 +154,7 @@ void Lobby::UpdateGameList(QStandardItemModel* list) {
 
 void Lobby::RetranslateUi() {
     ui->retranslateUi(this);
+    setWindowTitle(tr("Browse Switch 2 rooms"));
 }
 
 QString Lobby::PasswordPrompt() {
@@ -130,6 +171,9 @@ void Lobby::OnExpandRoom(const QModelIndex& index) {
 }
 
 void Lobby::OnJoinRoom(const QModelIndex& source) {
+    if (static_cast<MultiplayerState*>(parentWidget())->IsConnecting()) {
+        return;
+    }
     if (!Network::GetSelectedNetworkInterface()) {
         LOG_INFO(WebService, "Automatically selected network interface for room network.");
         Network::SelectFirstNetworkInterface();
@@ -142,9 +186,9 @@ void Lobby::OnJoinRoom(const QModelIndex& source) {
     }
 
     if (system.IsPoweredOn()) {
-        if (!NetworkMessage::WarnGameRunning()) {
-            return;
-        }
+        QMessageBox::information(this, tr("Stop the game first"),
+                                 tr("Join the room before starting your game."));
+        return;
     }
 
     if (const auto member = Network::GetRoomMember().lock()) {
@@ -183,16 +227,17 @@ void Lobby::OnJoinRoom(const QModelIndex& source) {
     int port = proxy->data(connection_index, LobbyItemHost::HostPortRole).toInt();
     const std::string verify_uid =
         proxy->data(connection_index, LobbyItemHost::HostVerifyUIDRole).toString().toStdString();
+    const auto api = Settings::values.web_api_url.GetValue();
+    const auto username = Settings::values.eden_username.GetValue();
+    const auto account_token = Settings::values.eden_token.GetValue();
 
     // attempt to connect in a different thread
-    QFuture<void> f = QtConcurrent::run([nickname, ip, port, password, verify_uid] {
+    ui->room_list->setEnabled(false);
+    QFuture<void> f = QtConcurrent::run([=] {
         std::string token;
 #ifdef ENABLE_WEB_SERVICE
-        if (!Settings::values.eden_username.GetValue().empty() &&
-            !Settings::values.eden_token.GetValue().empty()) {
-            WebService::Client client(Settings::values.web_api_url.GetValue(),
-                                      Settings::values.eden_username.GetValue(),
-                                      Settings::values.eden_token.GetValue());
+        if (!username.empty() && !account_token.empty()) {
+            WebService::Client client(api, username, account_token);
             token = client.GetExternalJWT(verify_uid).returned_data;
             if (token.empty()) {
                 LOG_ERROR(WebService, "Could not get external JWT, verification may fail");
@@ -207,8 +252,6 @@ void Lobby::OnJoinRoom(const QModelIndex& source) {
         }
     });
     watcher->setFuture(f);
-
-    // TODO(jroweboy): disable widgets and display a connecting while we wait
 
     // Save settings
     UISettings::values.multiplayer_nickname = ui->nickname->text().toStdString();
@@ -233,12 +276,18 @@ void Lobby::ResetModel() {
 }
 
 void Lobby::RefreshLobby() {
-    if (auto session = announce_multiplayer_session.lock()) {
+    if (room_list_watcher.isRunning()) {
+        return;
+    }
+    // Browsing uses its own HTTP client, separate from a hosted room's heartbeat.
+    if (auto session = std::make_shared<Core::AnnounceMultiplayerSession>()) {
         ResetModel();
         ui->refresh_list->setEnabled(false);
         ui->refresh_list->setText(tr("Refreshing"));
-        room_list_watcher.setFuture(
-            QtConcurrent::run([session]() { return session->GetRoomList(); }));
+        directory_status->setText(tr("Loading Switch 2 rooms..."));
+        refresh_error = std::make_shared<std::string>();
+        room_list_watcher.setFuture(QtConcurrent::run(
+            [session, error = refresh_error]() { return session->GetRoomList(error.get()); }));
     } else {
         // TODO(jroweboy): Display an error box about announce couldn't be started
     }
@@ -247,6 +296,9 @@ void Lobby::RefreshLobby() {
 void Lobby::OnRefreshLobby() {
     AnnounceMultiplayerRoom::RoomList new_room_list = room_list_watcher.result();
     for (auto room : new_room_list) {
+        if (!Network::IsCompatibleSwitch2Room(room)) {
+            continue;
+        }
         // find the icon for the game if this person owns that game.
         QPixmap smdh_icon;
         for (int r = 0; r < game_list->rowCount(); ++r) {
@@ -292,6 +344,12 @@ void Lobby::OnRefreshLobby() {
     }
 
     // Re-enable the refresh button and resize the columns
+    directory_status->setText(
+        !refresh_error->empty() ? QString::fromStdString(*refresh_error)
+        : model->rowCount() == 0
+            ? tr("No compatible Switch 2 rooms are listed. Host one, or join an unlisted room "
+                 "directly.")
+            : tr("%1 Switch 2 room(s). Double-click a room to join.").arg(model->rowCount()));
     ui->refresh_list->setEnabled(true);
     ui->refresh_list->setText(tr("Refresh List"));
     ui->room_list->header()->stretchLastSection();

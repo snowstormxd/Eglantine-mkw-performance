@@ -8,6 +8,7 @@
 #include <memory>
 #include <QDialog>
 #include <QFutureWatcher>
+#include "common/common_types.h"
 #include "yuzu/multiplayer/validation.h"
 
 namespace Ui {
@@ -18,6 +19,14 @@ namespace Core {
 class System;
 }
 
+class QLineEdit;
+
+struct RoomConnectionResult {
+    QString error;
+    std::string address;
+    u16 port{};
+};
+
 class DirectConnectWindow : public QDialog {
     Q_OBJECT
 
@@ -26,6 +35,12 @@ public:
     ~DirectConnectWindow();
 
     void RetranslateUi();
+    bool IsConnecting() const {
+        return watcher.isRunning();
+    }
+    void WaitForConnection() {
+        watcher.waitForFinished();
+    }
 
 signals:
     /**
@@ -43,7 +58,8 @@ private:
     void BeginConnecting();
     void EndConnecting();
 
-    QFutureWatcher<void>* watcher;
+    QFutureWatcher<RoomConnectionResult> watcher;
+    QLineEdit* room_id;
     std::unique_ptr<Ui::DirectConnect> ui;
     Validation validation;
     Core::System& system;

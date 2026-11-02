@@ -31,7 +31,7 @@ public:
     WebResult Update() override;
     WebResult Register() override;
     void ClearPlayers() override;
-    AnnounceMultiplayerRoom::RoomList GetRoomList() override;
+    AnnounceMultiplayerRoom::RoomList GetRoomList(std::string* error = nullptr) override;
     void Delete() override;
 
 private:

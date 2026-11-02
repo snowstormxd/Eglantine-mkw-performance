@@ -1,7 +1,9 @@
 # Windows MKW follow-up, 1 November 2026
 
-Current package: run `eglantine.exe` directly. A native MKW session preset now
-enforces the eight requested settings after per-game configuration is read.
+Current package: run `eglantine.exe` directly. Choose Yes in the startup popup to
+apply the eight recommended settings when MKW launches. No, closing, or ignoring
+the popup preserves your settings. Switch 2 Multiplayer provides room browsing,
+joining by public room ID, and hosting through Eden's existing directory.
 The original implementation notes below describe the earlier defaults-only pass;
 see `PERFORMANCE-INVESTIGATION.md` for the subsequent automatic preset and CPU work.
 

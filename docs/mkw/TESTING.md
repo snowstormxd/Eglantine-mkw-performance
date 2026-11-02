@@ -7,17 +7,32 @@ the dedicated/shared memory CSV counters when evaluating this virtualized system
 It is built natively on Windows with upstream's UCRT64 clang PGO toolchain. The
 profile is Eden's published `v020525` profile, not a newly trained MKW profile.
 
-Launch **eglantine.exe** directly. MKW automatically receives Vulkan, 1x, Fast,
-asynchronous shaders on, BC3, conservative VRAM, reactive flushing off and FIFO
-Relaxed after per-game settings load. The preset overrides those saved values for
-the session without rewriting saved preferences. Other title IDs are unchanged.
+Launch **eglantine.exe** directly. Choose **Yes** in the recommended-settings popup
+to use Vulkan, 1x, Fast, asynchronous shaders on, BC3, conservative VRAM, reactive
+flushing off and FIFO Relaxed for MKW. These session settings override saved values
+after per-game configuration loads, without rewriting saved preferences. **No**,
+closing, or ignoring the popup keeps your own settings. The keys-install popup is
+removed; manual installation remains available from Tools.
 
 The supplied session log used a saved **2x** resolution override. The native
-preset now enforces **1x for MKW**, with no launcher or environment variable needed.
+preset uses **1x for MKW when accepted**, with no launcher or environment variable needed.
 Use the same effective 1x setting in the normal Eglantine comparison.
 `MKW-Diagnostics.cmd` optionally enables the detailed GPU profiler; use it for
 debugging, then return to the executable for timing. See
 `PERFORMANCE-INVESTIGATION.md` for findings and the local recording benchmark.
+
+Use **Switch 2 Multiplayer > Browse Rooms**, **Join Room**, or **Host Room** before
+starting a game. Public rooms use Eden's existing directory, filtered to compatible
+Switch 2 game IDs. Right-click a listed room to copy its ID. Public hosts can also
+copy the ID from the connected-room window. Paste it into Join Room, or use a
+server address and UDP port for an unlisted room. Public hosting needs an account
+configured under Emulation > Configure > Web, plus an accessible UDP port.
+The connection limit is 2-24; the game controls its own player limit.
+
+This is for emulator players. Physical-console bridging and Nintendo Online are
+not included. The native build and 90 automated cases pass, including loopback
+broadcast/reply relay, password rejection and room capacity. Two-PC MKW gameplay
+and the complete UI flow remain unverified.
 
 The performance launcher now clears an inherited detailed-profiler environment
 setting. The Vulkan startup log states whether the detailed GPU profiler is on.
