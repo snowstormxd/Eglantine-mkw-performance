@@ -19,6 +19,7 @@ add_executable(tests
     common/game_presets.cpp
     common/switch2_rooms.cpp
     core/core_timing.cpp
+    core/nx2_present_timing.cpp
     core/internal_network/network.cpp
     core/internal_network/rooms.cpp
     video_core/memory_tracker.cpp

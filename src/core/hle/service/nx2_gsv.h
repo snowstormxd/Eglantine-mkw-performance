@@ -45,8 +45,10 @@
 #include "core/hle/kernel/k_resource_limit.h"
 #include "core/hle/kernel/k_server_session.h"
 #include "core/hle/kernel/k_event.h"
+#include "core/hle/kernel/k_hardware_timer.h"
 #include "core/hle/kernel/k_readable_event.h"
 #include "core/hle/kernel/k_session.h"
+#include "core/hle/kernel/k_thread.h"
 #include "core/hle/kernel/k_transfer_memory.h"
 #include "core/memory.h"
 #include "video_core/host1x/host1x.h"
@@ -61,6 +63,7 @@
 #include "core/hle/service/nvdrv/nvdrv.h"
 #include "core/hle/service/nvdrv/nvdrv_interface.h"
 #include "core/hle/service/nx2_stub_interface.h"
+#include "core/hle/service/nx2_present_timing.h"
 #include "core/hle/service/sm/sm.h"
 #include "core/hle/service/server_manager.h"
 #include "core/hle/service/service.h"
@@ -1466,7 +1469,7 @@ private:
         const auto waited = std::chrono::steady_clock::now();
         Composite(w[5], ~w[22], w[24]);
         const auto composited = std::chrono::steady_clock::now();
-        PaceToVblank();
+        PaceToVblank(w[12]);
         const auto paced = std::chrono::steady_clock::now();
         // Where each frame's time goes on the present thread, averaged per 600 presents: the
         // game is blocked here while Eden's GPU thread catches up (fence) and composites.
@@ -1521,21 +1524,32 @@ private:
     // The console flips one frame per 60 Hz vblank and keeps the rest queued, so a game can't
     // present faster than that. Every slot is reported free here: hold each present until the
     // next vblank instead (title 4 ran at up to 160 fps, its timing and audio with it).
-    std::chrono::steady_clock::time_point m_next_vblank{};
+    Service::Nx2::PresentPacer m_present_pacer;
+    u32 m_swap_word{};
 
-    void PaceToVblank() {
+    void PaceToVblank(u32 timing) {
         if (!Settings::values.use_speed_limit.GetValue() || Settings::SpeedLimit() == 0) {
+            m_present_pacer.Schedule(std::chrono::steady_clock::now(), {});
             return;
         }
-        const auto interval = std::chrono::nanoseconds{100'000'000'000LL / 60 / Settings::SpeedLimit()};
-        const auto now = std::chrono::steady_clock::now();
-        if (now > m_next_vblank + interval) {
-            // Running slower than 60 fps: show at once and don't bank the lost time.
-            m_next_vblank = now;
-        } else if (now < m_next_vblank) {
-            std::this_thread::sleep_until(m_next_vblank);
+        static const u32 forced_interval = [] {
+            const char* value = std::getenv("EDEN_NX2_SWAP_INTERVAL");
+            return value ? static_cast<u32>(std::strtoul(value, nullptr, 10)) : 0U;
+        }();
+        const auto interval = Service::Nx2::PresentInterval(timing, Settings::SpeedLimit(), forced_interval);
+        if (timing != m_swap_word) {
+            m_swap_word = timing;
+            LOG_INFO(Service, "nx2:vi2 present timing {:#x}: interval {} us; guest-kernel pacing",
+                     timing, std::chrono::duration_cast<std::chrono::microseconds>(interval).count());
         }
-        m_next_vblank += interval;
+        const auto now = std::chrono::steady_clock::now();
+        const auto deadline = m_present_pacer.Schedule(now, interval);
+        if (now < deadline) {
+            // Yield guest core 3 while the service waits, so its other game threads can run.
+            const auto wait = std::chrono::duration_cast<std::chrono::nanoseconds>(deadline - now);
+            static_cast<void>(Kernel::GetCurrentThread(kernel).Sleep(
+                kernel, kernel.HardwareTimer().GetTick() + wait.count() + 2));
+        }
     }
 
     void WaitForFrame(u32 fence_id, u32 fence_value) {
