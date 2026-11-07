@@ -20,6 +20,7 @@ add_executable(tests
     common/unique_function.cpp
     core/core_timing.cpp
     core/nup_writer.cpp
+    core/nx2_movie_pacing.cpp
     core/priority_queue.cpp
     core/internal_network/network.cpp
     video_core/memory_tracker.cpp
