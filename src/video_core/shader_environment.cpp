@@ -519,11 +519,9 @@ std::shared_ptr<const LoweredNativeCode> GenericEnvironment::LowerNativeCode(u32
             program_base, lowered.error_offset, lowered.error, words[0] & 0xfff, words[0],
             words[1], words[2], words[3]);
     }
-    if (const char* enabled = std::getenv("EDEN_MKW_ZERO_DEPTH_FALLBACK");
-        enabled != nullptr && enabled[0] == '1') {
-        VideoCommon::ApplyMkwZeroDepthFallback(native, lowered);
-    }
+    VideoCommon::ApplyMkwZeroDepthFallback(native, lowered);
     auto result = std::make_shared<LoweredNativeCode>();
+    result->native_key = Shader::Ampere::NativeProgramKey(native);
     result->texture_bound = lowered.required_texture_buffer;
     result->source_size = native_header_size + lowered.source_size;
     auto& lowered_code = result->code;

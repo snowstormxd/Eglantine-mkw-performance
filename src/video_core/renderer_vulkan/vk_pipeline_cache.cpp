@@ -702,12 +702,13 @@ GraphicsPipeline* PipelineCache::CurrentGraphicsPipeline() {
     return CurrentGraphicsPipelineSlowPath();
 }
 
-ComputePipeline* PipelineCache::CurrentComputePipeline() {
+ComputePipeline* PipelineCache::CurrentComputePipeline(u64& native_key) {
 
     const ShaderInfo* const shader{ComputeShader()};
     if (!shader) {
         return nullptr;
     }
+    native_key = shader->lowered_native ? shader->lowered_native->native_key : 0;
     const auto& qmd{kepler_compute->launch_description};
     const ComputePipelineCacheKey key{
         .unique_hash = shader->unique_hash,
@@ -738,8 +739,7 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
 
     const auto shader_dir{Common::FS::GetEdenPath(Common::FS::EdenPath::ShaderDir)};
     auto base_dir{shader_dir / fmt::format("{:016x}", title_id)};
-    if (const char* enabled = std::getenv("EDEN_MKW_ZERO_DEPTH_FALLBACK");
-        enabled != nullptr && enabled[0] == '1') {
+    if (title_id == 0x0400C3F00006E000ULL) {
         base_dir /= "mkw_zero_depth_v1";
     }
     if (!Common::FS::CreateDir(shader_dir) || !Common::FS::CreateDir(base_dir)) {

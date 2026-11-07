@@ -8,7 +8,7 @@
 
 namespace VideoCommon {
 
-// Experimental, opt-in workaround for a missing ground-height map. The original wave
+// Workaround for a missing ground-height map in this exact shader. The original wave
 // amplitudes and water exclusion mask still control the resulting displacement.
 inline bool ApplyMkwZeroDepthFallback(std::span<const Shader::Ampere::Instruction> source,
                                       Shader::Ampere::LoweredProgram& program) {
@@ -19,7 +19,8 @@ inline bool ApplyMkwZeroDepthFallback(std::span<const Shader::Ampere::Instructio
     }
     constexpr size_t next_source = 0x2d0 / sizeof(Shader::Ampere::Instruction);
     const size_t insert = program.source_instruction_offsets[next_source];
-    if (insert > program.instructions.size()) {
+    if (insert > program.instructions.size() ||
+        (next_source != 0 && program.source_instruction_offsets[next_source - 1] > insert)) {
         return false;
     }
     // At this point R8=(water-ground)*20, R9=water and R4=saturate(R8).
