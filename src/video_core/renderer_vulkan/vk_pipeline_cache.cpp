@@ -1317,11 +1317,6 @@ GraphicsPipeline* PipelineCache::BuiltPipeline(GraphicsPipeline* pipeline) const
     if (maxwell3d->GetNativeMacroEngine().native_turing) {
         return pipeline;
     }
-    // Native draws can populate terrain textures that are consumed only once. Skipping them
-    // during asynchronous compilation leaves those textures empty for later compute work.
-    if (maxwell3d->GetNativeMacroEngine().native_turing) {
-        return pipeline;
-    }
     // If something is using depth, we can assume that games are not rendering anything which
     // will be used one time.
     if (maxwell3d->regs.zeta_enable) {
