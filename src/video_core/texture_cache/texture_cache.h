@@ -1858,6 +1858,18 @@ void TextureCache<P>::MarkRangeWritten(Image& image, DAddr cpu_addr, size_t size
     if (True(image.flags & ImageFlagBits::CpuModified) && image.dirty_ranges.empty()) {
         return; // all of it is dirty already
     }
+    if (True(image.flags & ImageFlagBits::Sparse)) {
+        ForEachSparseSegment(image, [&](GPUVAddr gpu_addr, DAddr device_addr, size_t bytes) {
+            const DAddr begin = (std::max)(cpu_addr, device_addr);
+            const DAddr end = (std::min)(cpu_addr + size, device_addr + bytes);
+            if (begin < end) {
+                image.flags |= ImageFlagBits::CpuModified;
+                image.dirty_ranges.emplace_back(gpu_addr - image.gpu_addr + begin - device_addr,
+                                                end - begin);
+            }
+        });
+        return;
+    }
     const DAddr begin = (std::max<DAddr>)(cpu_addr, image.cpu_addr);
     const DAddr end = (std::min<DAddr>)(cpu_addr + size, image.cpu_addr + image.guest_size_bytes);
     if (end <= begin) {
@@ -2657,7 +2669,9 @@ ImageId TextureCache<P>::JoinImages(const ImageInfo& info, GPUVAddr gpu_addr, DA
     }
 
     if (!gpu_memory->IsContinuousRange(new_image.gpu_addr, new_image.guest_size_bytes) &&
-        new_info.is_sparse) {
+        (new_info.is_sparse ||
+         (new_info.native_tiling &&
+          Tegra::Nx2InSparseRegion(new_image.gpu_addr, new_image.guest_size_bytes)))) {
         new_image.flags |= ImageFlagBits::Sparse;
     }
 
