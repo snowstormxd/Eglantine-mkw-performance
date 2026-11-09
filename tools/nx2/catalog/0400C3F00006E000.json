@@ -1,0 +1,11 @@
+{
+ "title": "0400C3F00006E000",
+ "game": "",
+ "notes": "",
+ "programs": [
+  {"key": "a34f11bc9493e55d", "hash": "2549089caba029f3", "stage": "cs", "object": "FogRenderVoxel", "how": "Matched native key to the named DrivePassShaderDefault archive program; writes nonzero 88x48x256 scattering and transmittance volumes.", "updated": "2026-11-08T22:04:32Z"},
+  {"key": "5c7306fd9b2f4209", "hash": "9ee3b4003e1818ba", "stage": "ps", "object": "Grass material lighting", "how": "Matched native key to DriveRefreshGrass in the Procedural archive; captured draw 2043 uses this program and the grass vertex program.", "updated": "2026-11-08T22:04:32Z"},
+  {"key": "596cfb078c5aa5e8", "hash": "656bbf995c123d05", "stage": "vs", "object": "Grass vertex lighting and placement", "how": "Matched native key to DriveRefreshGrass in the Procedural archive. Loads baked light-probe data from graphics cbuf0 descriptor at 0x190.", "updated": "2026-11-08T22:04:32Z"},
+  {"key": "d5cb41cd99b3b358", "hash": "d425ce30d2679582", "stage": "cs", "object": "LightProbeCalcInstance", "how": "Matched captured native program key to the named DrivePassShaderDefault archive program; frame capture shows nonzero SH output consumed by character draws.", "updated": "2026-11-08T22:04:32Z"}
+ ]
+}
