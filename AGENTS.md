@@ -20,3 +20,9 @@ Keep comments to a reasonable level. Do not overexplain or add/remove comments f
 - The shader lab (`tools/nx2/shader_lab.py`) saves what you name to your local copy (`EDEN_NX2_CATALOG_DIR`, default `%APPDATA%\eglantine\nx2-catalog` or `~/.local/share/eglantine/nx2-catalog`), which carries over between builds and checkouts. Programs identified another way (debug server rejects, frame dumps): `python3 -I tools/nx2/catalog.py add --title <program id> --key <key> [--hash <hash>] --object "..." --how "..."`.
 - **Every commit uploads the catalogue when yours has more.** Before each commit run `python3 -I tools/nx2/catalog.py status`. If it exits 1 (your local copy has entries the repo copy lacks, or newer ones), run `python3 -I tools/nx2/catalog.py merge` and commit the changed `tools/nx2/catalog/*.json` as its own commit (`tools/nx2: catalogue: <game>: <n> programs`) next to your work, so it goes up with the same push. If the repo copy already has everything, change nothing. `merge` only adds and updates; never delete entries from the repo copy.
 - Names, stages and short notes only: no shader code, textures, dumps or other game data.
+
+
+## Local Mario Kart World evidence
+
+- Use the private, unencrypted base game dump at `I:\Apps\cloudstore\SW2-dumpster\games+firmware\mkw\base` (`romfs` and `exefs`) for offline investigation. Keep game files and derived captures local.
+- Follow `I:\stuff\AGENTS.md`. Use source, local files, and the emulator's local diagnostic API. The user drives gameplay and launches or stops the emulator.

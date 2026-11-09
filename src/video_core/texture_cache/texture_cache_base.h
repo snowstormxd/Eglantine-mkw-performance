@@ -240,7 +240,7 @@ public:
     [[nodiscard]] ImageView& GetImageView(u32 index) noexcept;
 
     // Publish the CPU-readable collision image. Caller holds the cache mutex.
-    bool PublishComputeCollisionImage(u32 index);
+    void PublishComputeCollisionImage(u32 index);
 
     /// Mark an image as modified from the GPU
     void MarkModification(ImageId id) noexcept;
@@ -558,7 +558,8 @@ private:
     DAddr virtual_invalid_space{};
 
     /// Applies EDEN_NX2_TC_EXPECTED_MIB / EDEN_NX2_TC_CRITICAL_MIB and logs the thresholds.
-    void ApplyThresholdOverrides(bool log = true);
+    void ApplyThresholdOverrides(u64 critical_cap = MaxCriticalMemory);
+    void LogThresholds() const;
 
     /// The CPU address an image at gpu_addr is keyed by: its backing, or a fixed stand-in.
     [[nodiscard]] std::optional<DAddr> ImageCpuAddress(GPUVAddr gpu_addr, size_t size) const;

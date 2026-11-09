@@ -1294,7 +1294,7 @@ void RasterizerVulkan::DispatchCompute() {
     auto indirect_address = kepler_compute->GetIndirectComputeAddress();
     if (frame_dump.Capturing()) {
         const u64 shader_hash = pipeline->ShaderHash();
-        frame_dump.NoteKeys(std::array{shader_hash}, std::array{pipeline_cache.ComputeNativeKey()});
+        frame_dump.NoteKeys(std::array{shader_hash}, std::array{native_key});
         if (frame_dump.CapturingSampled()) {
             boost::container::small_vector<FrameDump::Sampled, 16> sampled;
             for (const auto& image : pipeline->SampledImages()) {

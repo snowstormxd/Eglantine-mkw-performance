@@ -1903,9 +1903,13 @@ private:
             swap_interval = forced_interval;
         }
         const u32 refresh_rate = (timing & 0xffff) >= 30 && (timing & 0xffff) <= 240 ? timing & 0xffff : 60;
-        if (timing != std::exchange(m_swap_word, timing)) {
+        const u32 previous_timing = std::exchange(m_swap_word, timing);
+        if (m_presents == 1 || m_presents % 600 == 0) {
             LOG_INFO(Service, "nx2:vi2 present #{} swap interval {} at {} Hz (word 12 = {:#x})",
                      m_presents, swap_interval, refresh_rate, timing);
+        } else if (timing != previous_timing) {
+            LOG_DEBUG(Service, "nx2:vi2 present #{} swap interval {} at {} Hz (word 12 = {:#x})",
+                      m_presents, swap_interval, refresh_rate, timing);
         }
         const auto interval = std::chrono::nanoseconds{
             100'000'000'000LL * swap_interval / refresh_rate / Settings::SpeedLimit()};
