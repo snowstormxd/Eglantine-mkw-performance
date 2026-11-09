@@ -767,7 +767,6 @@ GraphicsPipeline* PipelineCache::CurrentGraphicsPipeline() {
 }
 
 ComputePipeline* PipelineCache::CurrentComputePipeline(u64& native_key) {
-
     const ShaderInfo* const shader{ComputeShader()};
     if (!shader) {
         return nullptr;
@@ -843,11 +842,8 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
     }
 
     const auto shader_dir{Common::FS::GetEdenPath(Common::FS::EdenPath::ShaderDir)};
-    auto base_dir{shader_dir / fmt::format("{:016x}", title_id)};
-    if (title_id == 0x0400C3F00006E000ULL) {
-        base_dir /= "mkw_zero_depth_v1";
-    }
-    if (!Common::FS::CreateDir(shader_dir) || !Common::FS::CreateDir(base_dir)) {
+    const auto base_dir{shader_dir / fmt::format("{:016x}", title_id)};
+    if (!Common::FS::CreateDirs(base_dir)) {
         LOG_ERROR(Common_Filesystem, "Failed to create pipeline cache directories");
         return;
     }
@@ -1310,6 +1306,11 @@ GraphicsPipeline* PipelineCache::BuiltPipeline(GraphicsPipeline* pipeline) const
         return pipeline;
     }
     if (!use_asynchronous_shaders) {
+        return pipeline;
+    }
+    // Native draws can produce terrain data used only once. Submit them after compilation
+    // instead of leaving permanent holes when their first use misses the shader cache.
+    if (maxwell3d->GetNativeMacroEngine().native_turing) {
         return pipeline;
     }
     // If something is using depth, we can assume that games are not rendering anything which
