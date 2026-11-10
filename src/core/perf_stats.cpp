@@ -11,6 +11,7 @@
 #include <numeric>
 #include <sstream>
 #include <thread>
+#include <utility>
 #include <fmt/chrono.h>
 #include <fmt/ranges.h>
 #include "common/fs/file.h"
@@ -85,6 +86,49 @@ void PerfStats::EndSystemFrame() {
 
 void PerfStats::EndGameFrame() {
     game_frames.fetch_add(1, std::memory_order_relaxed);
+}
+
+bool PerfStats::StartLapCapture() {
+    std::scoped_lock lock{object_mutex};
+    if (lap_active.load(std::memory_order_relaxed)) {
+        return false;
+    }
+    lap_frames.reserve(MaxLapFrames);
+    lap_start = Clock::now();
+    lap_previous = {};
+    lap_active.store(true, std::memory_order_relaxed);
+    return true;
+}
+
+std::optional<std::vector<PerfStats::LapFrame>> PerfStats::StopLapCapture() {
+    std::scoped_lock lock{object_mutex};
+    if (!lap_active.exchange(false, std::memory_order_relaxed)) {
+        return std::nullopt;
+    }
+    return std::exchange(lap_frames, {});
+}
+
+void PerfStats::RecordLapFrame(Clock::time_point entered, Clock::time_point waited,
+                               Clock::time_point composited, Clock::time_point paced) {
+    if (!lap_active.load(std::memory_order_relaxed)) {
+        return;
+    }
+    std::scoped_lock lock{object_mutex};
+    if (!lap_active.load(std::memory_order_relaxed) || entered < lap_start ||
+        lap_frames.size() == MaxLapFrames) {
+        return;
+    }
+    const auto us = [](Clock::duration duration) {
+        return duration_cast<microseconds>(duration).count();
+    };
+    lap_frames.push_back({
+        .elapsed_us = us(entered - lap_start),
+        .frame_us = lap_previous == Clock::time_point{} ? 0 : us(entered - lap_previous),
+        .fence_us = us(waited - entered),
+        .composite_us = us(composited - waited),
+        .pace_us = us(paced - composited),
+    });
+    lap_previous = entered;
 }
 
 double PerfStats::GetMeanFrametime() const {

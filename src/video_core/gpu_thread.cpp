@@ -81,7 +81,9 @@ void ThreadManager::StartThread(VideoCore::RendererBase& renderer, Core::Fronten
                         std::chrono::microseconds{500}) {
                         std::this_thread::yield();
                     } else {
-                        std::this_thread::sleep_for(std::chrono::milliseconds{1});
+                        // A new command list can release the waiting channel. Wake on submission
+                        // and retry the pending channels before consuming the next command.
+                        state.queue.WaitForData(std::chrono::milliseconds{1});
                     }
                     continue;
                 }

@@ -18,6 +18,7 @@
 
 #include "common/range_sets.inc"
 #include "video_core/buffer_cache/buffer_cache_base.h"
+#include "video_core/buffer_cache/storage_buffer_size.h"
 #include "video_core/buffer_cache/uniform_stream_reuse.h"
 #include "video_core/gpu_split.h"
 #include "video_core/guest_memory.h"
@@ -665,9 +666,13 @@ bool BufferCache<P>::BindGraphicsStorageBuffer(size_t stage, size_t ssbo_index, 
         }
         ssbo_addr = holder + indirect_offset;
     }
+    // NVN graphics slots contain address/size descriptors, including on Switch 2. Treating them
+    // as bare pointers truncates Mario Kart World's 17 MiB light-probe buffer to 8 MiB.
+    const bool native_pointer = maxwell3d->GetNativeMacroEngine().native_turing &&
+                                !IsNvnGraphicsStorageDescriptor(stage, cbuf_index, cbuf_offset,
+                                                               indirect_offset);
     channel_state->storage_buffers[stage][ssbo_index] =
-        StorageBufferBinding(ssbo_addr, cbuf_index, is_written,
-                             maxwell3d->GetNativeMacroEngine().native_turing,
+        StorageBufferBinding(ssbo_addr, cbuf_index, is_written, native_pointer,
                              indirect_offset != ~0U);
     return (channel_state->storage_buffers[stage][ssbo_index].buffer_id != NULL_BUFFER_ID);
 }
@@ -2856,32 +2861,10 @@ Binding BufferCache<P>::StorageBufferBinding(GPUVAddr ssbo_addr, u32 cbuf_index,
         }
     }
     const Binding binding = [&]() -> Binding {
-        u32 size = [&]() {
-            const u32 memory_layout_size =
-                static_cast<u32>(gpu_memory->GetMemoryLayoutSize(gpu_addr));
-            // A pointer read from a table in memory is the base of an object pool, read anywhere in
-            // it (Ocarina of Time's grass instances lie 12-18 MiB past theirs): bound to the end of
-            // its mapping, up to 64 MiB. The 8 MiB cap made those reads return 0 and culled every
-            // blade. Written pools keep the cap: a write marks the whole binding GPU-modified.
-            if (table_pointer && !is_written) {
-                return (std::min)(memory_layout_size, static_cast<u32>(64_MiB));
-            }
-            // A native (Switch 2) compute program's pointer is bare: the word after it is another
-            // parameter (a dimension, stride or texture handle), not an NVN buffer size. Taking it
-            // as one bound Fortune's Weave's DLSS input features to 266 bytes and dropped the rest.
-            // Only DLSS passes size from the mapping: doing it for every native dispatch binds up
-            // to 8 MiB per buffer and slows Hyrule Warriors' fights to a few fps, then hangs them.
-            if (native_pointer) {
-                return (std::min)(memory_layout_size, static_cast<u32>(8_MiB));
-            }
-            const u32 packed_size = static_cast<u32>(next_qword);
-            const bool next_qword_is_size = static_cast<u32>(next_qword >> 32) == 0 &&
-                                            packed_size != 0 && packed_size <= memory_layout_size;
-            if (next_qword_is_size) {
-                return packed_size;
-            }
-            return (std::min)(memory_layout_size, static_cast<u32>(8_MiB));
-        }();
+        // Bare native pointers have parameters after them, not a size. Read-only pointer tables
+        // can reach a whole object pool; written pools stay capped to limit GPU-dirty tracking.
+        u32 size = StorageBufferSize(static_cast<u32>(gpu_memory->GetMemoryLayoutSize(gpu_addr)),
+                                     next_qword, native_pointer, table_pointer, is_written);
         if ((native_pointer || table_pointer) && size != 0) {
             // Stop where the mapping or its device range does: the binding is one device range, and
             // a written one isn't split into separate ranges without sparse sources.

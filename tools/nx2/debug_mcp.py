@@ -40,6 +40,16 @@ TOOLS = [
         },
     },
     {
+        "name": "lap_capture",
+        "description": "Start or stop bounded Switch 2 present timing. On stop, save a local CSV "
+                       "with present intervals and time spent on the fence, composite and pacing.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"action": {"enum": ["start", "stop"]}},
+            "required": ["action"],
+        },
+    },
+    {
         "name": "screenshot",
         "description": "PNG of the next presented frame (16:9, default 720 lines). Fails when no "
                        "frame is presented within timeout_s (paused or loading).",

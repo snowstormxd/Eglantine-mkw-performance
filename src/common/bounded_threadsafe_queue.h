@@ -6,6 +6,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstddef>
 #include <mutex>
@@ -36,6 +37,14 @@ public:
 
     bool TryPop(T& t) noexcept {
         return Pop<PopMode::Try>(t);
+    }
+
+    void WaitForData(std::chrono::milliseconds timeout) noexcept {
+        const auto read_index = consumer.index.load(std::memory_order::relaxed);
+        std::unique_lock lock{consumer.cv_mutex};
+        consumer.cv.wait_for(lock, timeout, [this, read_index] {
+            return read_index != producer.index.load(std::memory_order::acquire);
+        });
     }
 
     void PopWait(T& t) noexcept {

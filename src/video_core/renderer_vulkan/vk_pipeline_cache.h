@@ -139,7 +139,7 @@ public:
 private:
     [[nodiscard]] GraphicsPipeline* CurrentGraphicsPipelineSlowPath();
 
-    [[nodiscard]] GraphicsPipeline* BuiltPipeline(GraphicsPipeline* pipeline) const noexcept;
+    [[nodiscard]] GraphicsPipeline* BuiltPipeline(GraphicsPipeline* pipeline) const;
 
     /// Whether the current draw may be skipped while its pipeline is being built.
     [[nodiscard]] bool CanSkipDraw() const noexcept;
@@ -225,6 +225,7 @@ private:
     TextureCache& texture_cache;
     VideoCore::ShaderNotify& shader_notify;
     bool use_asynchronous_shaders{};
+    bool save_vulkan_cache_at_shutdown{};
     bool use_vulkan_pipeline_cache{};
 
     GraphicsPipelineCacheKey graphics_key{};

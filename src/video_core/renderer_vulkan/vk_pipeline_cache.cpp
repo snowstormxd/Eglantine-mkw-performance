@@ -17,6 +17,7 @@
 #include <bit>
 #include <numeric>
 #include "common/cityhash.h"
+#include "common/game_presets.h"
 #include "common/scope_exit.h"
 #include "common/fs/fs.h"
 #include "common/fs/path_util.h"
@@ -400,6 +401,17 @@ bool GraphicsPipelineCacheKey::operator==(const GraphicsPipelineCacheKey& rhs) c
 }
 
 namespace {
+// Keep MKW's Windows NVIDIA cache across launches. The Vulkan driver showed expensive builds
+// during races, and exporting the cache during gameplay can itself stall pipeline creation.
+bool UseMkwShutdownPipelineCache([[maybe_unused]] const Device& device) {
+#ifdef _WIN32
+    return device.GetDriverID() == VK_DRIVER_ID_NVIDIA_PROPRIETARY &&
+           Settings::GetCurrentProgramID() == Settings::MarioKartWorldProgramId;
+#else
+    return false;
+#endif
+}
+
 // NVIDIA's and AMD's drivers keep a disk cache of built pipelines of their own. Eden's copy on top
 // only kept every pipeline the title ever built in host memory (title 1: a 245 MB file, ~0.35 GB
 // of RAM for the session) and copied it whole at each save, which stalled frames; pipelines built
@@ -428,8 +440,9 @@ PipelineCache::PipelineCache(Tegra::MaxwellDeviceMemoryManager& device_memory_,
       render_pass_cache{render_pass_cache_}, buffer_cache{buffer_cache_},
       texture_cache{texture_cache_}, shader_notify{shader_notify_},
       use_asynchronous_shaders{Settings::values.use_asynchronous_shaders.GetValue()},
+      save_vulkan_cache_at_shutdown{UseMkwShutdownPipelineCache(device_)},
       use_vulkan_pipeline_cache{Settings::values.use_vulkan_driver_pipeline_cache.GetValue() &&
-                                !DriverCachesPipelines(device_)},
+                                (save_vulkan_cache_at_shutdown || !DriverCachesPipelines(device_))},
       workers(device.HasBrokenParallelShaderCompiling() ? 1ULL : GetTotalPipelineWorkers(),
               "VkPipelineBuilder", {}, Common::ThreadPlacement::Background),
       serialization_thread(1, "VkPipelineSerialization", {},
@@ -757,7 +770,8 @@ PipelineCache::~PipelineCache() {
     StopBackgroundPipelines();
     SaveUsedPipelines();
     if (use_vulkan_pipeline_cache && !vulkan_pipeline_cache_filename.empty()) {
-        if (!device.CanReadPipelineCacheDuringBuilds()) {
+        serialization_thread.WaitForRequests();
+        if (save_vulkan_cache_at_shutdown || !device.CanReadPipelineCacheDuringBuilds()) {
             // Drop queued builds, as destroying the workers would; running ones must end first.
             workers.ClearRequests();
             workers.WaitForRequests();
@@ -830,7 +844,6 @@ GraphicsPipeline* PipelineCache::CurrentGraphicsPipeline() {
 }
 
 ComputePipeline* PipelineCache::CurrentComputePipeline(u64& native_key) {
-
     const ShaderInfo* const shader{ComputeShader()};
     if (!shader) {
         return nullptr;
@@ -906,11 +919,8 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
     }
 
     const auto shader_dir{Common::FS::GetEdenPath(Common::FS::EdenPath::ShaderDir)};
-    auto base_dir{shader_dir / fmt::format("{:016x}", title_id)};
-    if (title_id == 0x0400C3F00006E000ULL) {
-        base_dir /= "mkw_zero_depth_v1";
-    }
-    if (!Common::FS::CreateDir(shader_dir) || !Common::FS::CreateDir(base_dir)) {
+    const auto base_dir{shader_dir / fmt::format("{:016x}", title_id)};
+    if (!Common::FS::CreateDirs(base_dir)) {
         LOG_ERROR(Common_Filesystem, "Failed to create pipeline cache directories");
         return;
     }
@@ -1169,7 +1179,7 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
         }
     }
 
-    if (use_vulkan_pipeline_cache) {
+    if (use_vulkan_pipeline_cache && !save_vulkan_cache_at_shutdown) {
         SerializeVulkanPipelineCache(vulkan_pipeline_cache_filename, vulkan_pipeline_cache,
                                      CACHE_VERSION);
         size_t size = 0;
@@ -1184,7 +1194,8 @@ void PipelineCache::LoadDiskResources(u64 title_id, std::stop_token stop_loading
 }
 
 void PipelineCache::QueueVulkanPipelineCacheFlush() {
-    if (!use_vulkan_pipeline_cache || vulkan_pipeline_cache_filename.empty() ||
+    if (!use_vulkan_pipeline_cache || save_vulkan_cache_at_shutdown ||
+        vulkan_pipeline_cache_filename.empty() ||
         !device.CanReadPipelineCacheDuringBuilds()) {
         return;
     }
@@ -1372,11 +1383,13 @@ void PipelineCache::StopBackgroundPipelines() {
     background_workers.reset();
 }
 
-GraphicsPipeline* PipelineCache::BuiltPipeline(GraphicsPipeline* pipeline) const noexcept {
+GraphicsPipeline* PipelineCache::BuiltPipeline(GraphicsPipeline* pipeline) const {
     if (pipeline->IsBuilt()) {
         return pipeline;
     }
     if (!use_asynchronous_shaders || !CanSkipDraw()) {
+        // Submit work already marked for flushing before the scheduler waits for this pipeline.
+        scheduler.FlushDeferred();
         return pipeline;
     }
     graphics_miss = "async-build";
@@ -1384,6 +1397,11 @@ GraphicsPipeline* PipelineCache::BuiltPipeline(GraphicsPipeline* pipeline) const
 }
 
 bool PipelineCache::CanSkipDraw() const noexcept {
+    // Mario Kart World can generate persistent terrain data on a draw's first use.
+    if (maxwell3d->GetNativeMacroEngine().native_turing &&
+        Settings::GetCurrentProgramID() == Settings::MarioKartWorldProgramId) {
+        return false;
+    }
     // If something is using depth, we can assume that games are not rendering anything which
     // will be used one time.
     if (maxwell3d->regs.zeta_enable) {
@@ -2178,6 +2196,10 @@ void PipelineCache::SerializeVulkanPipelineCache(const std::filesystem::path& fi
     // empty, and every later boot failed to read it.
     auto temporary = filename;
     temporary += ".tmp";
+    SCOPE_EXIT {
+        std::error_code error;
+        std::filesystem::remove(temporary, error);
+    };
     std::ofstream file(temporary, std::ios::binary);
     file.exceptions(std::ifstream::failbit);
     if (!file.is_open()) {
@@ -2191,9 +2213,13 @@ void PipelineCache::SerializeVulkanPipelineCache(const std::filesystem::path& fi
     size_t cache_size = 0;
     std::vector<char> cache_data;
     if (pipeline_cache) {
-        pipeline_cache.Read(&cache_size, nullptr);
+        if (pipeline_cache.Read(&cache_size, nullptr) != VK_SUCCESS) {
+            return;
+        }
         cache_data.resize(cache_size);
-        pipeline_cache.Read(&cache_size, cache_data.data());
+        if (pipeline_cache.Read(&cache_size, cache_data.data()) != VK_SUCCESS) {
+            return;
+        }
     }
     file.write(cache_data.data(), cache_size);
     file.close();
@@ -2202,7 +2228,6 @@ void PipelineCache::SerializeVulkanPipelineCache(const std::filesystem::path& fi
     if (error) {
         LOG_ERROR(Common_Filesystem, "Failed to replace Vulkan driver pipeline cache file {}: {}",
                   Common::FS::PathToUTF8String(filename), error.message());
-        std::filesystem::remove(temporary, error);
         return;
     }
 
@@ -2211,10 +2236,6 @@ void PipelineCache::SerializeVulkanPipelineCache(const std::filesystem::path& fi
 
 } catch (const std::ios_base::failure& e) {
     LOG_ERROR(Common_Filesystem, "{}", e.what());
-    if (!Common::FS::RemoveFile(filename)) {
-        LOG_ERROR(Common_Filesystem, "Failed to delete Vulkan driver pipeline cache file {}",
-                  Common::FS::PathToUTF8String(filename));
-    }
 }
 
 vk::PipelineCache PipelineCache::LoadVulkanPipelineCache(const std::filesystem::path& filename,
@@ -2271,8 +2292,8 @@ vk::PipelineCache PipelineCache::LoadVulkanPipelineCache(const std::filesystem::
         std::vector<char> cache_data(cache_size);
         file.read(cache_data.data(), cache_size);
 
-        LOG_INFO(Render_Vulkan,
-                 "Loaded Vulkan driver pipeline cache: ", Common::FS::PathToUTF8String(filename));
+        LOG_INFO(Render_Vulkan, "Loaded Vulkan driver pipeline cache: {} ({} bytes)",
+                 Common::FS::PathToUTF8String(filename), cache_size);
 
         return create_pipeline_cache(cache_size, cache_data.data());
 

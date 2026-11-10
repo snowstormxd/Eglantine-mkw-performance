@@ -8,6 +8,8 @@
 #include <chrono>
 #include <cstddef>
 #include <mutex>
+#include <optional>
+#include <vector>
 #include "common/common_types.h"
 
 namespace Core {
@@ -38,6 +40,20 @@ public:
     void EndSystemFrame();
     void EndGameFrame();
 
+    struct LapFrame {
+        s64 elapsed_us;
+        s64 frame_us;
+        s64 fence_us;
+        s64 composite_us;
+        s64 pace_us;
+    };
+    static constexpr size_t MaxLapFrames = 36'000;
+
+    bool StartLapCapture();
+    std::optional<std::vector<LapFrame>> StopLapCapture();
+    void RecordLapFrame(Clock::time_point entered, Clock::time_point waited,
+                        Clock::time_point composited, Clock::time_point paced);
+
     PerfStatsResults GetAndResetStats(std::chrono::microseconds current_system_time_us);
 
     /**
@@ -53,6 +69,10 @@ public:
 
 private:
     mutable std::mutex object_mutex;
+    std::atomic<bool> lap_active{};
+    Clock::time_point lap_start{};
+    Clock::time_point lap_previous{};
+    std::vector<LapFrame> lap_frames;
 
     /// Title ID for the game that is running. 0 if there is no game running yet
     u64 title_id{0};

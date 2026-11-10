@@ -575,8 +575,15 @@ private:
 
     // Signals a job slot's event once the GPU thread has run everything queued so far, as the
     // console's graphics server completes unmap jobs behind the submitted work.
-    void SignalAfterGpu(u32 slot) {
+    void SignalAfterGpu(u32 slot, bool release_memory = false) {
         auto* const event = EventFor(slot);
+        if (release_memory) {
+            system.GPU().RunInOrder([this, event] {
+                system.GPU().Renderer().ReadRasterizer()->SignalFence(
+                    [this, event] { event->Signal(system.Kernel()); }, true);
+            });
+            return;
+        }
         if (!VideoCommon::Nx2JobStats::Enabled()) {
             system.GPU().RunInOrder([this, event] { event->Signal(system.Kernel()); });
             return;
@@ -586,6 +593,13 @@ private:
             VideoCommon::Nx2JobStats::Note(VideoCommon::Nx2JobStats::Kind::SignalWait,
                                            std::chrono::steady_clock::now() - queued);
             event->Signal(system.Kernel());
+        });
+    }
+
+    void QueueBackingRelease(std::shared_ptr<std::atomic<bool>> done) {
+        system.GPU().RunInOrder([this, done] {
+            system.GPU().Renderer().ReadRasterizer()->SignalFence(
+                [done] { done->store(true, std::memory_order_release); }, true);
         });
     }
 
@@ -610,7 +624,7 @@ private:
         } else {
             LOG_WARNING(Service, "nx2:gpu 102 destroy of unknown handle {}", handle);
         }
-        SignalAfterGpu(w[3]);
+        SignalAfterGpu(w[3], true);
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(ResultSuccess);
     }
@@ -715,10 +729,12 @@ private:
                     region->second.cpu_address, region->second.size);
                 if (!done) {
                     done = std::make_shared<std::atomic<bool>>(false);
-                    system.GPU().RunInOrder([done] { done->store(true, std::memory_order_release); });
                 }
                 m_released_regions.push_back({std::move(region->second), done});
                 region = m_gpu_only_regions.erase(region);
+            }
+            if (done) {
+                QueueBackingRelease(done);
             }
         }
         SignalAfterGpu(w[8]);
@@ -884,7 +900,7 @@ private:
             Nvidia::Devices::Nx2GpuMemoryRegistry::Get().ReleaseBacking(it->second.cpu_address,
                                                                         it->second.size);
             auto done = std::make_shared<std::atomic<bool>>(false);
-            system.GPU().RunInOrder([done] { done->store(true, std::memory_order_release); });
+            QueueBackingRelease(done);
             m_gpu_only_bytes -= it->second.size;
             m_released_regions.push_back({std::move(it->second), done});
             m_gpu_only_regions.erase(it);
@@ -1133,7 +1149,8 @@ private:
                 region = &it->second;
             }
         }
-        if (const auto gpu_only = GpuOnlyRegionOf(gpu_address, size)) {
+        if (const auto gpu_only = GpuOnlyRegionOf(gpu_address, size);
+            gpu_only && region == nullptr) {
             ApplyGpuOnlyRequest(*gpu_only, request);
             return;
         }
@@ -1206,9 +1223,7 @@ private:
     // - Regions whose memory the game shares with another GPU-only region (render targets): the
     //   texture cache would flush and re-upload such overlapping render targets every frame. All of
     //   a group keep the memory 214 gave them.
-    // - Regions 214 backs as they are written: the texture cache reads an image's memory in full
-    //   when it uploads it, which makes the game's pages behind it resident on the host, while
-    //   unwritten blocks read as zero for free (title 1: ~1 GB less resident at 150 s).
+    // Lazily backed regions take the sparse-tile path above once explicit backing is supplied.
     void ApplyGpuOnlyRequest(u64 region, const SparseMapRequest& request) {
         auto& registry = Nvidia::Devices::Nx2GpuMemoryRegistry::Get();
         const u64 gpu_address = request.gpu_address;
@@ -1329,6 +1344,7 @@ private:
     // tile was mapped, which the console would have dropped) go back.
     void StartTiles(u64 start, SparseRegion& region) {
         using Core::Memory::YUZU_PAGESIZE;
+        Tegra::Nx2SparseRegionTiled(start, region.size, SparseBlockSize);
         region.tiles = true;
         region.tile_pages.assign(Common::DivCeil(region.size, YUZU_PAGESIZE), false);
         std::shared_ptr<std::atomic<bool>> done;
@@ -1347,11 +1363,13 @@ private:
                                                                         backing->second.size);
             if (!done) {
                 done = std::make_shared<std::atomic<bool>>(false);
-                system.GPU().RunInOrder([done] { done->store(true, std::memory_order_release); });
             }
             released += backing->second.size;
             m_released_regions.push_back({std::move(backing->second), done});
             m_gpu_only_regions.erase(backing);
+        }
+        if (done) {
+            QueueBackingRelease(done);
         }
         m_sparse_released_bytes += released;
         LOG_INFO(Service, "nx2:gpu sparse region at {:#x}: the game maps its tiles, {} MiB of blocks "
@@ -1842,6 +1860,7 @@ private:
         const auto composited = std::chrono::steady_clock::now();
         PaceToVblank(w[12]);
         const auto paced = std::chrono::steady_clock::now();
+        system.GetPerfStats().RecordLapFrame(entered, waited, composited, paced);
         // Where each frame's time goes on the present thread, averaged per 600 presents: the
         // game is blocked here while Eden's GPU thread catches up (fence) and composites.
         {
@@ -1942,9 +1961,13 @@ private:
             swap_interval = forced_interval;
         }
         const u32 refresh_rate = (timing & 0xffff) >= 30 && (timing & 0xffff) <= 240 ? timing & 0xffff : 60;
-        if (timing != std::exchange(m_swap_word, timing)) {
+        const u32 previous_timing = std::exchange(m_swap_word, timing);
+        if (m_presents == 1 || m_presents % 600 == 0) {
             LOG_INFO(Service, "nx2:vi2 present #{} swap interval {} at {} Hz (word 12 = {:#x})",
                      m_presents, swap_interval, refresh_rate, timing);
+        } else if (timing != previous_timing) {
+            LOG_DEBUG(Service, "nx2:vi2 present #{} swap interval {} at {} Hz (word 12 = {:#x})",
+                      m_presents, swap_interval, refresh_rate, timing);
         }
         const auto interval = std::chrono::nanoseconds{
             100'000'000'000LL * swap_interval / refresh_rate / Settings::SpeedLimit()};
@@ -1992,6 +2015,7 @@ private:
         }
         auto& syncpoints = system.Host1x().GetSyncpointManager();
         const auto start = std::chrono::steady_clock::now();
+        const auto suspended_deadline = start + std::chrono::milliseconds{3};
         // Long enough to cover shader/pipeline compile stalls: a game that gets more than a few
         // command buffers ahead misses the equal-value gates its other channels acquire.
         const auto deadline = start + std::chrono::milliseconds{4000};
@@ -2016,16 +2040,23 @@ private:
             // Title 1's channels resume and suspend again while they wait on this thread, so any
             // suspension counts, not only an unbroken one.
             bool gpu_waited = false;
-            while (!wake->done && system.IsPoweredOn() &&
-                   std::chrono::steady_clock::now() < deadline) {
+            while (!wake->done && system.IsPoweredOn()) {
+                const auto now = std::chrono::steady_clock::now();
+                if (now >= deadline) {
+                    break;
+                }
+                auto next_check = now + std::chrono::milliseconds{unless_gpu_waits ? 1 : 50};
                 if (unless_gpu_waits) {
                     gpu_waited |= system.GPU().HasSuspendedChannels();
-                    if (gpu_waited &&
-                        std::chrono::steady_clock::now() - start > std::chrono::milliseconds{3}) {
-                        return false;
+                    if (gpu_waited) {
+                        if (now >= suspended_deadline) {
+                            return false;
+                        }
+                        // Repeated millisecond waits can overshoot the grace deadline on Windows.
+                        next_check = suspended_deadline;
                     }
                 }
-                wake->cv.wait_for(lk, std::chrono::milliseconds{unless_gpu_waits ? 1 : 50});
+                wake->cv.wait_until(lk, (std::min)(deadline, next_check));
             }
         }
         if (unless_gpu_waits && !syncpoints.IsReadyGuest(fence_id, fence_value)) {
@@ -3121,10 +3152,7 @@ private:
         }
         auto& syncpoints = system.Host1x().GetSyncpointManager();
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds{100};
-        while (!syncpoints.IsReadyGuest(fence.syncpoint, fence.value) &&
-               std::chrono::steady_clock::now() < deadline) {
-            std::this_thread::sleep_for(std::chrono::milliseconds{1});
-        }
+        syncpoints.WaitGuestUntil(fence.syncpoint, fence.value, deadline);
     }
 
     // Writes a decoded frame into an output image; returns the size the frame reports.

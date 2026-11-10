@@ -141,7 +141,7 @@ public:
         }
         previous_seq = last;
         previous_enter = enter;
-        previous_return = Now();
+        const u64 returned = Now();
         if (frames >= 300) {
             const double n = static_cast<double>(frames);
             const auto ms = [n](u64 sum) { return static_cast<double>(sum) / 1e6 / n; };
@@ -156,8 +156,8 @@ public:
             previous_back_cpu = keep_back;
             previous_seq = last;
             previous_enter = enter;
-            previous_return = previous_return;
         }
+        previous_return = returned;
     }
 
 private:

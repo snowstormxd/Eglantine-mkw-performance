@@ -69,6 +69,16 @@ void SyncpointManager::WaitGuest(u32 syncpoint_id, u32 expected_value) {
     Wait(syncpoints_guest[syncpoint_id], wait_guest_cv, expected_value);
 }
 
+void SyncpointManager::WaitGuestUntil(u32 syncpoint_id, u32 expected_value,
+                                     std::chrono::steady_clock::time_point deadline) {
+    if (IsReadyGuest(syncpoint_id, expected_value)) {
+        return;
+    }
+    std::unique_lock lk(guard);
+    wait_guest_cv.wait_until(lk, deadline,
+                             [&] { return IsReadyGuest(syncpoint_id, expected_value); });
+}
+
 void SyncpointManager::WaitHost(u32 syncpoint_id, u32 expected_value) {
     Wait(syncpoints_host[syncpoint_id], wait_host_cv, expected_value);
 }

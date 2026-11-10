@@ -29,6 +29,7 @@
 #include "core/frontend/framebuffer_layout.h"
 #include "core/hle/kernel/k_process.h"
 #include "core/memory.h"
+#include "core/perf_stats.h"
 #include "hid_core/hid_core.h"
 #include "video_core/gpu.h"
 #include "video_core/nx2_debug_control.h"
@@ -92,6 +93,7 @@ struct ToolState {
     u64 captures{};
     u64 screenshots{};
     u64 samples{};
+    u64 laps{};
     u64 gpu_reads{};
     std::atomic<bool> stopping{};
 };
@@ -230,6 +232,47 @@ json Status(ToolState& state, const json& params) {
         {"rejected", HexList(VideoCore::Nx2Debug::RejectedHashes())},
         {"write_memory", state.write_enabled},
     };
+}
+
+json LapCapture(ToolState& state, const json& params) {
+    if (!Settings::CurrentProgramIsSwitch2()) {
+        throw std::runtime_error{"lap capture requires a Switch 2 title"};
+    }
+    auto& stats = state.system.GetPerfStats();
+    const auto action = params.at("action").get<std::string>();
+    if (action == "start") {
+        if (state.system.IsPaused()) {
+            throw std::runtime_error{"resume the game before starting a lap capture"};
+        }
+        if (!stats.StartLapCapture()) {
+            throw std::runtime_error{"lap capture is already recording"};
+        }
+        LOG_INFO(Debug, "NX2 lap capture {} started", ++state.laps);
+        return {{"recording", true}};
+    }
+    if (action != "stop") {
+        throw std::runtime_error{"lap capture action must be start or stop"};
+    }
+    std::filesystem::create_directories(state.dump_directory);
+    const auto path = state.dump_directory / fmt::format("lap-{}-{}.csv", state.session, state.laps);
+    auto frames = stats.StopLapCapture();
+    if (!frames) {
+        throw std::runtime_error{"no lap capture is recording"};
+    }
+    LOG_INFO(Debug, "NX2 lap capture {} stopped at {} presents", state.laps, frames->size());
+    std::ofstream file{path};
+    file << "elapsed_us,frame_us,fence_us,composite_us,pace_us\n";
+    for (const auto& frame : *frames) {
+        file << frame.elapsed_us << ',' << frame.frame_us << ',' << frame.fence_us << ','
+             << frame.composite_us << ',' << frame.pace_us << '\n';
+    }
+    file.close();
+    if (!file) {
+        throw std::runtime_error{"could not write lap capture"};
+    }
+    return {{"file", PathText(path)},
+            {"presents", frames->size()},
+            {"limit_reached", frames->size() == PerfStats::MaxLapFrames}};
 }
 
 json Screenshot(ToolState& state, const json& params) {
@@ -646,6 +689,7 @@ Handlers MakeHandlers(const std::shared_ptr<ToolState>& state) {
     };
     return {
         {"status", handler(Status)},
+        {"lap_capture", handler(LapCapture)},
         {"screenshot", handler(Screenshot)},
         {"log_tail", handler(LogTail)},
         {"log_filter", handler(LogFilter)},

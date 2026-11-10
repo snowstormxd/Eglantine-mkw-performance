@@ -31,7 +31,7 @@ void CheckPreset(const Settings::Values& settings) {
     CHECK(settings.vram_usage_mode.GetValue() == Settings::VramUsageMode::Conservative);
     CHECK_FALSE(settings.use_reactive_flushing.GetValue());
     CHECK(settings.vsync_mode.GetValue() == Settings::VSyncMode::FifoRelaxed);
-    CHECK(settings.use_docked_mode.GetValue() == Settings::ConsoleMode::Handheld);
+    CHECK(settings.use_docked_mode.GetValue() == Settings::ConsoleMode::Docked);
     CHECK(settings.scaling_filter.GetValue() == Settings::ScalingFilter::ScaleForce);
     CHECK(settings.anti_aliasing.GetValue() == Settings::AntiAliasing::Fxaa);
 }

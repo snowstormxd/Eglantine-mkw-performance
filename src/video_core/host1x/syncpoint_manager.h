@@ -5,6 +5,7 @@
 
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <functional>
 #include <list>
@@ -57,6 +58,8 @@ public:
     void IncrementHost(u32 syncpoint_id);
 
     void WaitGuest(u32 syncpoint_id, u32 expected_value);
+    void WaitGuestUntil(u32 syncpoint_id, u32 expected_value,
+                        std::chrono::steady_clock::time_point deadline);
 
     void WaitHost(u32 syncpoint_id, u32 expected_value);
 
